@@ -121,13 +121,13 @@ version <- 1
 version_label <- paste0("version_0", version)
 
 # Pipeline switches.
-fitModel       <- TRUE
-runPredictions <- TRUE
+fitModel       <- FALSE
+runPredictions <- FALSE
 runIndicators  <- TRUE
 
 # Model type switches.
 fit_single_species <- FALSE  # TRUE: PGOcc / spPGOcc per species
-fit_spatial_model  <- TRUE  # TRUE: spatial NNGP model
+fit_spatial_model  <- FALSE  # TRUE: spatial NNGP model
 
 # Coordinate reference system used throughout the modelling workflow.
 modelCrs <- 25833
@@ -322,8 +322,8 @@ tryCatch(
       source(here::here(
         "scripts",
         "02_pipeline",
-        "03_indicators",
-        "01_indicators.R"
+        "02_modelFit",
+        "03_estimating_indicators.R"
       ))
     }
 
