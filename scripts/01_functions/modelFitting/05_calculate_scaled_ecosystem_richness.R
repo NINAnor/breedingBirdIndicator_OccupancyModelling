@@ -1,3 +1,119 @@
+#' Calculate Scaled Ecosystem Richness from Species Predictions
+#'
+#' Computes scaled ecosystem richness by aggregating species prediction outputs
+#' (raster or vector) and normalizing expected richness against region-specific
+#' reference conditions derived from spatial intersections. The function supports
+#' both raster (`terra`) and vector (`sf`/GeoParquet) inputs, performs spatial joins,
+#' and produces FAIR-compliant outputs and metadata.
+#'
+#' This function supports FAIR principles:
+#' \itemize{
+#'   \item \strong{Findable}: Outputs use structured filenames and species-specific files.
+#'   \item \strong{Accessible}: Supports GeoTIFF, GeoParquet, CSV, and RDS formats.
+#'   \item \strong{Interoperable}: Preserves CRS, uses standard spatial formats, and
+#'         harmonized species naming.
+#'   \item \strong{Reusable}: Records parameters, processing steps, and metadata.
+#' }
+#'
+#' @param input_dir Character. Directory containing species prediction outputs
+#'   (subdirectories with `.tif` or `.parquet` files).
+#' @param reference_shape An \code{sf} object defining reference locations
+#'   used to estimate baseline richness.
+#' @param categorisation_shape An \code{sf} object containing region categories
+#'   (e.g., biogeographic regions).
+#' @param ecosystem_type Character. Ecosystem type used for filtering reference
+#'   data (e.g., `"Forest"`).
+#' @param value_col Character. Name of the column or raster layer containing
+#'   prediction values. Default is `"mean"`.
+#' @param point_spacing Numeric. Sampling spacing (in meters) when extracting
+#'   raster predictions. Default is `1000`.
+#' @param region_col Character. Column name defining regions used for scaling.
+#'   Default is `"bioGeographic_region"`.
+#' @param forest_only_strict Logical. If `TRUE`, restricts forest analyses to
+#'   protected forest areas. Default is `TRUE`.
+#' @param na.rm Logical. If `TRUE`, removes missing values in aggregation steps.
+#' @param output_dir Character or `NULL`. Directory to save outputs.
+#'   Required if `save_outputs = TRUE`.
+#' @param save_outputs Logical. If `TRUE`, saves outputs and metadata to disk.
+#' @param overwrite Logical. If `TRUE`, overwrite existing raster outputs.
+#'
+#' @return A named list containing:
+#' \itemize{
+#'   \item \code{results}: List of species prediction objects.
+#'   \item \code{reference_shape_with_categories}: Reference features with
+#'         assigned region categories.
+#'   \item \code{reference_predictions}: Extracted species predictions at reference locations.
+#'   \item \code{reference_predictions_expected_richness}: Regional summary of
+#'         expected richness for reference conditions.
+#'   \item \code{prediction_values_scaled_richness}: Per-point scaled richness values.
+#'   \item \code{scaled_richness_summary}: Regional summary statistics.
+#'   \item \code{lower_bound}: Minimum expected richness used in scaling.
+#'   \item \code{regional_reference}: Maximum expected richness per region.
+#' }
+#'
+#' @details
+#' The function performs the following workflow:
+#' \enumerate{
+#'   \item Validates inputs and ensures consistent coordinate reference systems.
+#'   \item Intersects \code{reference_shape} with \code{categorisation_shape}.
+#'   \item Optionally filters reference data for forest ecosystems.
+#'   \item Assigns each reference unit to a dominant region category.
+#'   \item Loads species prediction outputs:
+#'     \itemize{
+#'       \item GeoTIFF files (\pkg{terra})
+#'       \item GeoParquet files (\pkg{sfarrow})
+#'     }
+#'   \item Extracts species values at reference locations.
+#'   \item Computes expected species richness per reference point.
+#'   \item Aggregates richness by region to determine reference benchmarks.
+#'   \item Converts all species predictions to point-based `sf` objects.
+#'   \item Joins predictions and assigns regional categories spatially.
+#'   \item Computes expected richness across species.
+#'   \item Scales richness values between a lower bound and regional reference:
+#'     \deqn{
+#'       scaled = (expected - lower) / (reference - lower)
+#'     }
+#'   \item Constrains scaled values between 0 and 1.
+#'   \item Produces regional summary statistics.
+#'   \item Optionally writes outputs (GeoParquet, GeoTIFF, CSV, RDS) and JSON metadata.
+#' }
+#'
+#' Scaling interpretation:
+#' \itemize{
+#'   \item Values close to 0 indicate low richness relative to baseline conditions.
+#'   \item Values close to 1 indicate richness approaching regional reference levels.
+#' }
+#'
+#' Output files (if \code{save_outputs = TRUE}) include:
+#' \itemize{
+#'   \item Reference and prediction datasets (GeoParquet / GeoTIFF)
+#'   \item Regional summaries (CSV)
+#'   \item Species-specific outputs
+#'   \item Metadata file (`metadata.json`)
+#'   \item Serialized results (`all_results.rds`)
+#' }
+#'
+#' @examples
+#' \dontrun{
+#' result <- calculate_scaled_ecosystem_richness(
+#'   input_dir = "data/species_predictions",
+#'   reference_shape = ref_sf,
+#'   categorisation_shape = region_sf,
+#'   ecosystem_type = "Forest",
+#'   output_dir = "outputs/richness",
+#'   save_outputs = TRUE
+#' )
+#'
+#' result$scaled_richness_summary
+#' }
+#'
+#' @seealso
+#' [terra::rast()], [sf::st_intersection()], [sfarrow::st_read_parquet()],
+#' [dplyr::summarise()]
+#'
+#' @export
+
+
 calculate_scaled_ecosystem_richness <- function(
     input_dir,
     reference_shape,

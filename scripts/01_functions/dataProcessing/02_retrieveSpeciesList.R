@@ -1,3 +1,90 @@
+#' Retrieve Expert-Defined Species List by Ecosystem
+#'
+#' Reads an expert-curated bird species list from an Excel file and returns
+#' species associated with a selected ecosystem. The function standardizes
+#' column names, filters species based on ecosystem classification, performs
+#' quality checks, and optionally writes cleaned outputs and FAIR metadata.
+#'
+#' This function supports FAIR principles:
+#' \itemize{
+#'   \item \strong{Findable}: Uses explicit filenames and consistent output naming.
+#'   \item \strong{Accessible}: Reads from a user-defined folder and optionally
+#'         saves processed outputs.
+#'   \item \strong{Interoperable}: Standardizes fields to English and uses
+#'         scientific species names.
+#'   \item \strong{Reusable}: Performs validation, cleaning, duplicate removal,
+#'         and generates field- and dataset-level metadata.
+#' }
+#'
+#' @param path_to_file Character. Directory containing the expert species Excel file.
+#'   Defaults to the path returned by `path_finder("expertData")`.
+#' @param ecosystem Character. Ecosystem(s) to filter by. One or more of
+#'   `"Forest"` or `"Mountain"`.
+#' @param file_name Character. Name of the Excel file containing the expert list.
+#'   Default is `"Artsutvalg_030626.xlsx"`.
+#' @param save_outputs Logical. If `TRUE`, saves the processed species list and
+#'   metadata files to disk.
+#'
+#' @return A named list with three elements:
+#' \itemize{
+#'   \item \code{expertSpeciesList}: A data frame of filtered species.
+#'   \item \code{field_metadata}: A tibble describing fields in the dataset.
+#'   \item \code{dataset_metadata}: A tibble with dataset-level metadata.
+#' }
+#'
+#' @details
+#' The function performs the following steps:
+#' \enumerate{
+#'   \item Checks and loads required packages (\pkg{readxl}, \pkg{dplyr},
+#'         \pkg{stringr}, \pkg{readr}, \pkg{tibble}).
+#'   \item Validates inputs (directory, file existence, ecosystem choice).
+#'   \item Reads the Excel file and extracts relevant columns.
+#'   \item Standardizes column names and recodes ecosystem labels to English.
+#'   \item Filters species based on selected ecosystem(s).
+#'   \item Removes duplicates and performs basic quality checks.
+#'   \item Creates field-level and dataset-level metadata.
+#'   \item Optionally writes outputs and metadata to CSV files.
+#' }
+#'
+#' The input Excel file is expected to contain at least:
+#' \itemize{
+#'   \item A column containing scientific species names (e.g. "Vitenskapelig navn")
+#'   \item A column describing ecosystem classification (e.g. "Flerartsindeks")
+#' }
+#'
+#' Ecosystem values are internally recoded:
+#' \itemize{
+#'   \item \code{"FJELL"} → \code{"Mountain"}
+#'   \item \code{"SKOG"} → \code{"Forest"}
+#'   \item \code{"VÅTMARK"} → \code{"Wetland"}
+#'   \item \code{"JORDBRUK"} → \code{"Farmland"}
+#' }
+#'
+#' Output files (if \code{save_outputs = TRUE}) are written to a
+#' \code{processedData} subdirectory and include:
+#' \itemize{
+#'   \item Cleaned species list
+#'   \item Field metadata
+#'   \item Dataset metadata
+#' }
+#'
+#' @examples
+#' \dontrun{
+#' result <- retrieve_expertSpeciesList(
+#'   path_to_file = "data/expertData",
+#'   ecosystem = "Forest",
+#'   save_outputs = TRUE
+#' )
+#'
+#' result$expertSpeciesList
+#' }
+#'
+#' @seealso
+#' [readxl::read_excel()], [dplyr::select()], [readr::write_csv()]
+#'
+#' @export
+
+
 retrieve_expertSpeciesList <- function(
     path_to_file = path_finder("expertData"),
     ecosystem = c("Forest", "Mountain"),

@@ -1,3 +1,133 @@
+#' Fit Occupancy Models by Ecosystem and Species or Guild
+#'
+#' Fits Bayesian occupancy models using \pkg{spOccupancy} for either
+#' single species or groups of species (guilds), with support for both
+#' spatial and non-spatial formulations. The function constructs a
+#' consistent detection/non-detection dataset, builds model inputs,
+#' fits models, extracts posterior summaries, and returns structured outputs.
+#'
+#' This function supports FAIR principles:
+#' \itemize{
+#'   \item \strong{Findable}: Outputs are organized by ecosystem, guild, and species.
+#'   \item \strong{Accessible}: Results are returned as structured R objects and
+#'         optionally saved as `.rds` files.
+#'   \item \strong{Interoperable}: Uses standard modeling structures compatible
+#'         with \pkg{spOccupancy}, \pkg{coda}, and common ecological workflows.
+#'   \item \strong{Reusable}: Ensures consistent survey effort definition, includes
+#'         metadata, diagnostics, and derived ecological metrics.
+#' }
+#'
+#' @param ecosystemBreedingBird Data frame containing bird survey data.
+#' @param ecosystemType Character. Name of ecosystem (used for labeling outputs).
+#' @param maxSpeciesInGrps Integer. Maximum number of species per group if
+#'   automatic grouping is used.
+#' @param occ_covariates Character vector of occupancy covariate names.
+#' @param det_covariates Character vector of detection covariate names.
+#' @param species_groupings Optional data frame with columns \code{Species} and
+#'   \code{broad_guild} to define species groups.
+#' @param site_id_col,species_col,year_col,count_col Character. Column names in
+#'   input data defining site ID, species, year, and observation counts.
+#' @param lon_col,lat_col Character. Column names for coordinates (longitude, latitude).
+#' @param route_id_col,point_id_col Optional character. Explicit route and point identifiers.
+#' @param use_route_random_effect Logical. Include random intercept for routes.
+#' @param covariates_to_scale Character vector of covariates to scale.
+#'   Defaults to all occupancy and detection covariates.
+#' @param remove_routes_with_missing_coords Logical. Remove all routes with missing coordinates.
+#'
+#' @param single_species Logical. If `TRUE`, fits one model per species.
+#'   If `FALSE`, fits multi-species models.
+#' @param fit_spatial_model Logical. If `TRUE`, fits spatial NNGP models.
+#'
+#' @param n.batch,batch.length,n.burn,n.thin,n.chains Numeric. MCMC tuning parameters.
+#' @param n.neighbors Integer. Number of neighbors for spatial models.
+#' @param n.omp.threads Integer. Number of OpenMP threads.
+#' @param cov.model Character. Covariance model for spatial models.
+#'
+#' @param fit_models Logical. If `FALSE`, skips model fitting and returns prepared data.
+#' @param save_results Logical. If `TRUE`, saves model outputs to disk.
+#' @param verbose Logical. Print fitting progress.
+#' @param output_dir Character. Directory for saved outputs.
+#'
+#' @return A list containing:
+#' \itemize{
+#'   \item \code{ecosystem}: Ecosystem name
+#'   \item \code{single_species}: Model type flag
+#'   \item \code{fit_spatial_model}: Spatial model flag
+#'   \item \code{guild_results}: Nested results per guild or species
+#'   \item \code{combined}: Combined summary tables across all groups
+#' }
+#'
+#' The \code{combined} output includes (depending on model type):
+#' \itemize{
+#'   \item Occupancy probability summaries (\code{psi})
+#'   \item Latent occupancy states (\code{z})
+#'   \item Spatial random effects (\code{w})
+#'   \item Species richness estimates (multi-species only)
+#'   \item Posterior predictive checks (PPC)
+#'   \item Spatial parameters (\code{sigma_sq}, \code{phi})
+#'   \item Covariate effect summaries (occupancy and detection)
+#' }
+#'
+#' @details
+#' The function implements a unified modeling workflow:
+#' \enumerate{
+#'   \item Validates inputs and prepares data.
+#'   \item Constructs a global detection/non-detection array
+#'         (species x site x year) with consistent survey effort.
+#'   \item Removes sites or routes with missing coordinates if specified.
+#'   \item Builds occupancy and detection covariate matrices.
+#'   \item Optionally scales numeric covariates.
+#'   \item Defines model formulas for occupancy and detection processes.
+#'   \item Splits species into groups (guilds) if required.
+#'   \item Fits models based on selected configuration:
+#'     \itemize{
+#'       \item Single-species + spatial: \code{spPGOcc()}
+#'       \item Single-species + non-spatial: \code{PGOcc()}
+#'       \item Multi-species + spatial: \code{spMsPGOcc()}
+#'       \item Multi-species + non-spatial: \code{msPGOcc()}
+#'     }
+#'   \item Extracts posterior summaries and diagnostics:
+#'     \itemize{
+#'       \item Occupancy probability (\eqn{\\psi})
+#'       \item Latent occupancy state (\eqn{z})
+#'       \item Spatial random effects (\eqn{w})
+#'       \item Species richness (multi-species models)
+#'       \item Posterior predictive checks
+#'       \item WAIC and convergence diagnostics (R-hat)
+#'     }
+#'   \item Combines results across species or groups into unified outputs.
+#' }
+#'
+#' Key ecological interpretation:
+#' \itemize{
+#'   \item \eqn{\\psi}: Probability of occupancy at a site
+#'   \item \eqn{z}: Latent true occupancy state
+#'   \item \eqn{w}: Spatial variation not explained by covariates
+#'   \item Richness: Number of species per site (posterior expectation)
+#' }
+#'
+#' @examples
+#' \dontrun{
+#' results <- fit_ecosystem_spoccupancy(
+#'   ecosystemBreedingBird = bird_data,
+#'   ecosystemType = "Forest",
+#'   occ_covariates = c("elevation", "forest_cover"),
+#'   det_covariates = c("observer_effort"),
+#'   single_species = FALSE,
+#'   fit_spatial_model = TRUE
+#' )
+#'
+#' results$combined$psi
+#' results$combined$richness
+#' }
+#'
+#' @seealso
+#' [spOccupancy::spPGOcc()], [spOccupancy::spMsPGOcc()],
+#' [spOccupancy::PGOcc()], [spOccupancy::msPGOcc()],
+#' [coda::gelman.diag()]
+#'
+#' @export
+
 # =============================================================================
 # GENERAL OCCUPANCY FUNCTION BY ECOSYSTEM AND SPECIES GROUP
 # Supports: single-species / multi-species  x  spatial / non-spatial

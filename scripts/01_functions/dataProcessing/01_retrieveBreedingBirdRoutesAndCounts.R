@@ -1,31 +1,96 @@
-###############################################################################
-# Script: retrieve_breedingBirds_routesAndCounts.R
-#
-# Purpose:
-#   Retrieve, clean, document, and export breeding bird point-count data,
-#   route information, and species metadata for FIAR/TOV-E analyses.
-#
-# FAIR compliance:
-#   Findable:
-#     - Uses descriptive output filenames.
-#     - Creates machine-readable metadata.
-#     - Preserves route-point and EURING identifiers.
-#
-#   Accessible:
-#     - Saves outputs to a user-defined data folder.
-#     - Exports data as CSV, Parquet, and GeoPackage.
-#
-#   Interoperable:
-#     - Uses tidy tabular data.
-#     - Uses EURING species codes.
-#     - Stores spatial data with explicit CRS information.
-#
-#   Reusable:
-#     - Includes field-level metadata.
-#     - Records provenance.
-#     - Performs quality-control checks.
-#     - Documents flock-to-pair conversion rules.
-###############################################################################
+#' Retrieve and Process Breeding Bird Route and Count Data
+#'
+#' Retrieves, processes, and integrates breeding bird point-count data with
+#' sampling-point information and species metadata. Data can be loaded from a
+#' database connection or cached CSV files. The function performs cleaning,
+#' joins, conversions of flock observations to breeding pairs, spatial
+#' transformation, and generation of FAIR-compliant outputs and metadata.
+#'
+#' This function supports FAIR principles:
+#' \itemize{
+#'   \item \strong{Findable}: Uses consistent filenames and structured outputs.
+#'   \item \strong{Accessible}: Supports database retrieval and local caching.
+#'   \item \strong{Interoperable}: Uses EURING species codes, standardized fields,
+#'         and geospatial formats.
+#'   \item \strong{Reusable}: Includes validation, quality checks, provenance,
+#'         and metadata generation.
+#' }
+#'
+#' @param con DBI connection object or `NULL`. If supplied, data are retrieved
+#'   directly from the database; otherwise cached files are used.
+#' @param dataFolder Character. Directory for cached data and output files.
+#' @param overwrite_cache Logical. If `TRUE`, data are re-downloaded from the
+#'   database and overwrite cached files.
+#' @param save_outputs Logical. If `TRUE`, saves cleaned datasets and metadata.
+#' @param crs Numeric or character. Coordinate reference system for output spatial
+#'   data (e.g., `25833` for ETRS89 / UTM zone 33N).
+#'
+#' @return A named list with:
+#' \itemize{
+#'   \item \code{breedingBirdData}: Cleaned tabular dataset.
+#'   \item \code{breedingBirdData_sf}: Spatial \pkg{sf} object.
+#'   \item \code{routes}: Unique route–point combinations.
+#'   \item \code{field_metadata}: Field-level metadata table.
+#'   \item \code{dataset_metadata}: Dataset-level provenance metadata.
+#' }
+#'
+#' @details
+#' The function performs the following workflow:
+#' \enumerate{
+#'   \item Validates inputs and prepares cache/output directories.
+#'   \item Retrieves data either from database tables or cached CSV files:
+#'     \itemize{
+#'       \item Sampling-point data (\code{TakseringspunktInfo})
+#'       \item Bird observations (\code{Punkttaksering_Verifisert})
+#'       \item Species metadata (\code{Art})
+#'     }
+#'   \item Standardizes identifiers and constructs a unique
+#'         \code{Route_point_id}.
+#'   \item Joins sampling-point data to bird observations.
+#'   \item Joins species metadata using EURING codes.
+#'   \item Cleans and trims scientific species names.
+#'   \item Converts flock observations to estimated breeding pairs:
+#'     \itemize{
+#'       \item Code 1: divide by 5
+#'       \item Code 2: divide by 2
+#'       \item Otherwise unchanged
+#'     }
+#'   \item Computes total bird counts per observation.
+#'   \item Performs quality checks (missing values, negative counts, coordinates).
+#'   \item Creates a spatial \pkg{sf} object from longitude/latitude coordinates.
+#'   \item Transforms coordinates from WGS84 (EPSG:4326) to the specified CRS.
+#'   \item Produces a final analytical dataset with harmonized structure.
+#'   \item Generates field-level and dataset-level metadata.
+#'   \item Optionally writes outputs to CSV, Parquet, and GeoPackage formats.
+#' }
+#'
+#' Output files (if \code{save_outputs = TRUE}) include:
+#' \itemize{
+#'   \item Cleaned bird observation data (CSV and Parquet)
+#'   \item Spatial dataset (GeoPackage)
+#'   \item Field metadata (CSV)
+#'   \item Dataset metadata (CSV)
+#' }
+#'
+#' @examples
+#' \dontrun{
+#' result <- retrieve_breedingBirds_routesAndCounts(
+#'   con = my_db_connection,
+#'   dataFolder = "data/cache",
+#'   overwrite_cache = TRUE,
+#'   save_outputs = TRUE,
+#'   crs = 25833
+#' )
+#'
+#' result$breedingBirdData
+#' result$breedingBirdData_sf
+#' }
+#'
+#' @seealso
+#' [DBI::dbConnect()], [dplyr::tbl()], [sf::st_as_sf()],
+#' [arrow::write_parquet()], [readr::write_csv()]
+#'
+#' @export
 
 
 retrieve_breedingBirds_routesAndCounts <- function(
@@ -35,6 +100,36 @@ retrieve_breedingBirds_routesAndCounts <- function(
     save_outputs = TRUE,
     crs
 ) {
+
+  ###############################################################################
+  # Script: retrieve_breedingBirds_routesAndCounts.R
+  #
+  # Purpose:
+  #   Retrieve, clean, document, and export breeding bird point-count data,
+  #   route information, and species metadata for FIAR/TOV-E analyses.
+  #
+  # FAIR compliance:
+  #   Findable:
+  #     - Uses descriptive output filenames.
+  #     - Creates machine-readable metadata.
+  #     - Preserves route-point and EURING identifiers.
+  #
+  #   Accessible:
+  #     - Saves outputs to a user-defined data folder.
+  #     - Exports data as CSV, Parquet, and GeoPackage.
+  #
+  #   Interoperable:
+  #     - Uses tidy tabular data.
+  #     - Uses EURING species codes.
+  #     - Stores spatial data with explicit CRS information.
+  #
+  #   Reusable:
+  #     - Includes field-level metadata.
+  #     - Records provenance.
+  #     - Performs quality-control checks.
+  #     - Documents flock-to-pair conversion rules.
+  ###############################################################################
+
 
   ###########################################################################
   # 1. Install and load required packages

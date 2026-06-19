@@ -1,6 +1,26 @@
 # -------------------------------------------------------------------------
 # Helpers
 # -------------------------------------------------------------------------
+#' Construct Right-Hand Side of a Model Formula
+#'
+#' Builds the right-hand side (RHS) of a regression or occupancy model formula
+#' from a set of covariates, optionally adding a random effect term for route.
+#'
+#' @param covariates Character vector of covariate names.
+#' @param use_route_random_effect Logical. If `TRUE`, appends a random intercept
+#'   term \code{(1 | route_id)} to the formula.
+#'
+#' @return Character string representing the RHS of a model formula.
+#'
+#' @details
+#' If no covariates are provided, the function returns `"1"` (intercept-only model).
+#' If \code{use_route_random_effect = TRUE}, the random intercept is added.
+#'
+#' @examples
+#' make_rhs(c("elevation", "forest_cover"))
+#' make_rhs(c("elevation"), use_route_random_effect = TRUE)
+#'
+#' @keywords internal
 
 make_rhs <- function(covariates, use_route_random_effect = FALSE) {
   if (length(covariates) == 0) {
@@ -16,6 +36,30 @@ make_rhs <- function(covariates, use_route_random_effect = FALSE) {
   rhs
 }
 
+
+#' Sanitize Strings for Safe File or Object Names
+#'
+#' Cleans a character string by replacing non-alphanumeric characters with
+#' underscores and trimming leading/trailing underscores.
+#'
+#' @param x Character vector.
+#'
+#' @return Character vector with safe names suitable for filenames or column names.
+#'
+#' @details
+#' The function:
+#' \itemize{
+#'   \item Replaces all non-alphanumeric characters (except `-` and `_`) with `_`
+#'   \item Removes leading and trailing underscores
+#' }
+#'
+#' @examples
+#' safe_name("Haliaeetus albicilla")
+#' safe_name("species (test)-1")
+#'
+#' @keywords internal
+
+
 safe_name <- function(x) {
   x <- gsub("[^A-Za-z0-9_-]+", "_", x)
   gsub("^_+|_+$", "", x)
@@ -30,6 +74,35 @@ safe_name <- function(x) {
 #   $species_names   character vector (length 1 for single-species)
 #   $x_names         character vector of occupancy predictor column names
 # -------------------------------------------------------------------------
+
+#' Resolve Model Metadata from Saved Occupancy Model Output
+#'
+#' Internal helper that extracts species identity, model type, and predictor
+#' structure from a saved RDS occupancy model output.
+#'
+#' @param output List. Loaded RDS object containing model outputs.
+#' @param rds_file Character. Path to the RDS file (used for error messages).
+#'
+#' @return A list with:
+#' \itemize{
+#'   \item \code{single_species}: Logical indicating model type
+#'   \item \code{species_names}: Character vector of species names
+#'   \item \code{x_names}: Predictor column names for model matrix
+#'   \item \code{occ_formula_fixed}: Processed occupancy formula
+#' }
+#'
+#' @details
+#' The function:
+#' \enumerate{
+#'   \item Determines whether the model is single- or multi-species
+#'   \item Extracts species names from model object or filename
+#'   \item Removes random effects from the occupancy formula
+#'   \item Reconstructs the model matrix to identify predictor columns
+#' }
+#'
+#' It ensures compatibility between stored model structure and prediction inputs.
+#'
+#' @keywords internal
 
 .resolve_model_meta <- function(output, rds_file) {
 
@@ -166,6 +239,36 @@ safe_name <- function(x) {
 #   - msPGOcc  / PGOcc    : do NOT accept `coords.0`
 # -------------------------------------------------------------------------
 
+#' Internal Wrapper for Occupancy Model Prediction
+#'
+#' Calls the appropriate \code{predict()} method depending on whether the model
+#' is single- or multi-species and spatial or non-spatial.
+#'
+#' @param model Fitted occupancy model object.
+#' @param X_0 Numeric matrix of covariates for prediction.
+#' @param coords_0_mat Numeric matrix of coordinates (longitude, latitude).
+#' @param is_single Logical. Whether the model is single-species.
+#' @param is_spatial Logical. Whether the model includes spatial structure.
+#' @param ignore_RE Logical. Whether to ignore random effects during prediction.
+#' @param verbose Logical. Whether to print progress messages.
+#'
+#' @return Prediction object returned by \code{predict()}.
+#'
+#' @details
+#' Handles differences between model classes:
+#' \itemize{
+#'   \item \code{spPGOcc}, \code{PGOcc} (single-species)
+#'   \item \code{spMsPGOcc}, \code{msPGOcc} (multi-species)
+#' }
+#'
+#' Ensures correct handling of:
+#' \itemize{
+#'   \item \code{coords.0} argument for spatial models
+#'   \item \code{ignore.RE} argument for supported models
+#' }
+#'
+#' @keywords internal
+
 .run_predict <- function(model, X_0, coords_0_mat, is_single, is_spatial,
                          ignore_RE = TRUE, verbose = TRUE) {
   if (is_single) {
@@ -213,6 +316,85 @@ safe_name <- function(x) {
 # -------------------------------------------------------------------------
 # Main batch prediction function
 # -------------------------------------------------------------------------
+#' Generate Occupancy Predictions for Each Species from Fitted Models
+#'
+#' Loads fitted occupancy models from RDS files and generates predictions for
+#' each species at specified locations. Supports single- and multi-species models,
+#' spatial and non-spatial variants, and produces outputs as either point-based
+#' \pkg{sf} objects or raster layers.
+#'
+#' This function supports FAIR principles:
+#' \itemize{
+#'   \item \strong{Findable}: Outputs are organized by ecosystem and species.
+#'   \item \strong{Accessible}: Results saved as RDS, plots (PNG/PDF), and spatial formats.
+#'   \item \strong{Interoperable}: Uses standard formats (\pkg{sf}, GeoTIFF).
+#'   \item \strong{Reusable}: Includes metadata-rich outputs and consistent naming.
+#' }
+#'
+#' @param input_dir Character. Directory containing `.rds` model files.
+#' @param prediction_points Data frame with coordinates and covariates for prediction.
+#' @param det_covariates Character vector of detection covariates (not currently used).
+#' @param occ_covariates Character vector of occupancy covariates.
+#' @param base_raster Optional \pkg{terra} raster object used when `return = "raster"`.
+#' @param model_crs Coordinate reference system for output data.
+#' @param ecosystem_type Character. Ecosystem label used in output paths.
+#' @param output_dir Character. Directory where outputs should be saved.
+#' @param return Character. Output type: `"sf"` or `"raster"`.
+#' @param probs Numeric vector of quantiles for uncertainty intervals.
+#' @param use_route_random_effect Logical. Include random intercept for route.
+#' @param ignore_RE Logical. Whether to ignore random effects during prediction
+#'   (used in multi-species models).
+#' @param save_plots Logical. If `TRUE`, saves prediction plots.
+#' @param verbose Logical. Print detailed progress messages.
+#' @param plot_width,plot_height Numeric. Plot dimensions in inches.
+#' @param plot_dpi Numeric. Plot resolution.
+#'
+#' @return Invisibly returns a named list of per-species prediction outputs.
+#'
+#' @details
+#' The function performs:
+#' \enumerate{
+#'   \item Loads model objects from `.rds` files
+#'   \item Resolves species identity and model structure
+#'   \item Builds a prediction design matrix
+#'   \item Aligns predictor variables with model requirements
+#'   \item Runs predictions using appropriate model methods
+#'   \item Summarizes predictions into mean and uncertainty metrics
+#'   \item Outputs results as `sf` or raster formats
+#'   \item Saves per-species outputs and optional plots
+#' }
+#'
+#' Predictions include occupancy probability estimates summarized across:
+#' \itemize{
+#'   \item mean occupancy probability
+#'   \item uncertainty intervals (defined by \code{probs})
+#' }
+#'
+#' Output structure:
+#' \itemize{
+#'   \item One folder per species
+#'   \item Serialized results (`.rds`)
+#'   \item Optional visualization plots (`.png`, `.pdf`)
+#' }
+#'
+#' @examples
+#' \dontrun{
+#' results <- generate_occupancy_predictions_for_each_species(
+#'   input_dir = "models/",
+#'   prediction_points = df_points,
+#'   occ_covariates = c("elevation", "forest_cover"),
+#'   model_crs = 25833,
+#'   ecosystem_type = "Forest",
+#'   output_dir = "outputs/",
+#'   return = "sf"
+#' )
+#' }
+#'
+#' @seealso
+#' [predict()], [sf::st_as_sf()], [terra::rast()]
+#'
+#' @export
+
 
 generate_occupancy_predictions_for_each_species <- function(
     input_dir,
