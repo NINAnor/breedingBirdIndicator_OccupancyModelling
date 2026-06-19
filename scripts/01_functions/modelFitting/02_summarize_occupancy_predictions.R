@@ -273,7 +273,8 @@ summarize_occupancy_predictions <- function(
   # ---------------------------------------------------------------------------
   # Return sf
   # ---------------------------------------------------------------------------
-
+  output_dir <- normalizePath(output_dir, winslash = "/", mustWork = FALSE)
+  print(output_dir)
   if (return == "sf") {
 
     if (is.null(crs)) {
@@ -291,16 +292,16 @@ summarize_occupancy_predictions <- function(
       for (i in seq_along(species_names)) {
         sp      <- species_names[i]
         sp_safe <- safe_species_names[i]
-        sp_dir  <- file.path(output_dir, sp_safe)
+        sp_dir  <- file.path(output_dir,
+                             sp_safe)
         dir.create(sp_dir, recursive = TRUE, showWarnings = FALSE)
 
         sp_sf <- out_sf[out_sf$species == sp, ]
 
-        sfarrow::st_write_parquet(
-          obj         = sp_sf,
-          dsn         = file.path(sp_dir,
-                                  paste0(sp_safe, "_occupancy_predictions.parquet")),
-          compression = "snappy"
+        sf::st_write(
+          sp_sf,
+          file.path(sp_dir, paste0(sp_safe, "_occupancy_predictions.gpkg")),
+          delete_dsn = TRUE
         )
       }
     }

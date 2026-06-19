@@ -18,24 +18,17 @@ baseRasterForPreds <- create_template_raster(
 
 
 results <- generate_occupancy_predictions_for_each_species(
-  input_dir = file.path(
-    path_finder("results"),
-    "modelFit",
-    version_label
-  ),
+  input_dir = normalizePath(path_to_results, winslash = "/", mustWork = FALSE),
   prediction_points = predictionPoints_for_modelling,
   det_covariates = det_covs,
   occ_covariates = occ_covs,
   base_raster = baseRasterForPreds,
   model_crs = modelCrs,
   ecosystem_type = ecosystemType,
-  output_dir = file.path(
-    path_finder("results"),
-    "prediction_outputs"
-  ),
-  return = "sf",
+  output_dir = normalizePath(path_to_predictions, winslash = "/", mustWork = FALSE),
+  return = "raster",
   probs = c(0.025, 0.975),
-  use_route_random_effect = FALSE,
+  use_route_random_effect = TRUE,
   ignore_RE = TRUE,
   save_plots = TRUE,
   plot_width = 8,

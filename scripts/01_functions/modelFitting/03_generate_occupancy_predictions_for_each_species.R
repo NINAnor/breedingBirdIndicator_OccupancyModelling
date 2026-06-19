@@ -35,33 +35,59 @@ safe_name <- function(x) {
 
   model <- output$model_products$model
 
+  if (is.null(model)) {
+    stop(
+      "No fitted model found in `output$model_products$model` for RDS: ",
+      rds_file,
+      call. = FALSE
+    )
+  }
+
   # ---- Determine single vs multi-species ----------------------------------
-  # The RDS structure written by fit_ecosystem_spoccupancy() always carries
-  # $single_species.  Fall back to inspecting the model object class if the
-  # field is absent (e.g. externally produced RDS files).
 
   is_single <- if (!is.null(output$single_species)) {
     isTRUE(output$single_species)
   } else {
-    # spPGOcc / PGOcc objects do NOT have a $sp.names slot
     is.null(model$sp.names)
   }
 
   # ---- Species name(s) ----------------------------------------------------
+
   if (is_single) {
-    # Single-species: name is stored at output$species (a length-1 string)
+
     sp_names <- output$species
-    if (is.null(sp_names) || length(sp_names) != 1L) {
-      stop(
-        "Cannot determine species name from single-species RDS: ",
-        rds_file,
-        "\nExpected `output$species` to be a length-1 character vector.",
-        call. = FALSE
+
+    if (is.null(sp_names) || length(sp_names) != 1L || is.na(sp_names)) {
+
+      base <- tools::file_path_sans_ext(basename(rds_file))
+
+      sp_names <- sub(
+        "^(spPGOcc|PGOcc)_[^_]+_",
+        "",
+        base
       )
+
+      sp_names <- gsub("_", " ", sp_names)
+
+      if (is.null(sp_names) || length(sp_names) != 1L || !nzchar(sp_names)) {
+        stop(
+          "Cannot determine species name from single-species RDS: ",
+          rds_file,
+          "\nExpected `output$species` to be a length-1 character vector, ",
+          "or filename like `spPGOcc_Ecosystem_Genus_species.rds`.",
+          call. = FALSE
+        )
+      }
     }
+
   } else {
-    # Multi-species: name vector is on the model object AND in output$species
-    sp_names <- if (!is.null(model$sp.names)) model$sp.names else output$species
+
+    sp_names <- if (!is.null(model$sp.names)) {
+      model$sp.names
+    } else {
+      output$species
+    }
+
     if (is.null(sp_names) || length(sp_names) == 0L) {
       stop(
         "Cannot determine species names from multi-species RDS: ",
@@ -72,13 +98,51 @@ safe_name <- function(x) {
     }
   }
 
-  # ---- Predictor column names ---------------------------------------------
-  # Both PGOcc and msPGOcc store $x.names on the model object.
-  x_names <- model$x.names
-  if (is.null(x_names)) {
+  # ---- Occupancy predictor matrix column names ----------------------------
+
+  if (is.null(output$formulas$occ_formula)) {
     stop(
-      "Model object in ", rds_file, " has no `$x.names` slot. ",
-      "Cannot align prediction matrix.",
+      "No occupancy formula found at `output$formulas$occ_formula` for RDS: ",
+      rds_file,
+      call. = FALSE
+    )
+  }
+
+  if (is.null(output$data_list$occ.covs)) {
+    stop(
+      "No occupancy covariates found at `output$data_list$occ.covs` for RDS: ",
+      rds_file,
+      call. = FALSE
+    )
+  }
+
+  occ_formula_chr <- paste(deparse(output$formulas$occ_formula), collapse = " ")
+
+  occ_formula_chr <- gsub(
+    "\\+\\s*\\(1\\s*\\|\\s*route_id\\)",
+    "",
+    occ_formula_chr
+  )
+
+  occ_formula_chr <- gsub(
+    "\\(1\\s*\\|\\s*route_id\\)",
+    "",
+    occ_formula_chr
+  )
+
+  occ_formula_fixed <- stats::as.formula(occ_formula_chr)
+
+  x_names <- colnames(
+    stats::model.matrix(
+      occ_formula_fixed,
+      data = output$data_list$occ.covs
+    )
+  )
+
+  if (is.null(x_names) || length(x_names) == 0L) {
+    stop(
+      "Cannot determine model-matrix predictor columns for RDS: ",
+      rds_file,
       call. = FALSE
     )
   }
@@ -86,7 +150,8 @@ safe_name <- function(x) {
   list(
     single_species = is_single,
     species_names  = sp_names,
-    x_names        = x_names
+    x_names        = x_names,
+    occ_formula_fixed = occ_formula_fixed
   )
 }
 
@@ -102,7 +167,7 @@ safe_name <- function(x) {
 # -------------------------------------------------------------------------
 
 .run_predict <- function(model, X_0, coords_0_mat, is_single, is_spatial,
-                         ignore_RE, verbose) {
+                         ignore_RE = TRUE, verbose = TRUE) {
   if (is_single) {
     if (is_spatial) {
       # spPGOcc::predict — needs coords.0, no ignore.RE
@@ -110,6 +175,7 @@ safe_name <- function(x) {
         model,
         X.0      = X_0,
         coords.0 = coords_0_mat,
+        ignore.RE = ignore_RE,
         verbose  = verbose
       )
     } else {
@@ -117,6 +183,7 @@ safe_name <- function(x) {
       predict(
         model,
         X.0     = X_0,
+        ignore.RE = ignore_RE,
         verbose = verbose
       )
     }
@@ -197,6 +264,9 @@ generate_occupancy_predictions_for_each_species <- function(
   occ_rhs     <- make_rhs(occ_covariates, use_route_random_effect)
   occ_formula <- as.formula(paste("~", occ_rhs))
 
+  if(use_route_random_effect) prediction_points <- prediction_points %>%
+    dplyr::mutate(route_id = 1)
+
   X_0_full <- model.matrix(occ_formula, data = prediction_points)
 
   # Coordinates as a plain numeric matrix — used by spatial predict methods.
@@ -274,7 +344,9 @@ generate_occupancy_predictions_for_each_species <- function(
       )
     }
 
+
     X_0 <- X_0_full[, x_names, drop = FALSE]
+
 
     # ------------------------------------------------------------------
     # Run prediction
@@ -324,7 +396,7 @@ generate_occupancy_predictions_for_each_species <- function(
       return        = return,
       crs           = model_crs,
       probs         = probs,
-      output_dir    = file.path(output_dir, ecosystem_type)
+      output_dir    = normalizePath(output_dir, winslash = "/", mustWork = FALSE)
     )
 
     # ------------------------------------------------------------------

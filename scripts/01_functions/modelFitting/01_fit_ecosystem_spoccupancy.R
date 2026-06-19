@@ -913,14 +913,15 @@ fit_ecosystem_spoccupancy <- function(
             data          = data.list,
             inits         = inits,
             priors        = priors,
-            n.batch       = n.batch,
-            batch.length  = batch.length,
+            #n.batch       = n.batch,
+            #batch.length  = batch.length,
+            n.samples = batch.length * n.batch,
             n.burn        = n.burn,
             n.thin        = n.thin,
             n.chains      = n.chains,
             n.omp.threads = n.omp.threads,
-            verbose       = TRUE,
-            n.report      = max(1, floor(n.batch / 10))
+            verbose       = verbose#,
+            #n.report      = max(1, floor(n.batch / 10))
           )
         }
       }

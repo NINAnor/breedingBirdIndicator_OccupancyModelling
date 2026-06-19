@@ -37,9 +37,9 @@ version_label <- paste0("version_0", version)
 
 
 fitModel <- TRUE
-runPredictions <- FALSE
+runPredictions <- TRUE
 runIndicators <- FALSE
-fit_single_species  <- FALSE   # TRUE -> PGOcc / spPGOcc per species
+fit_single_species  <- TRUE  # TRUE -> PGOcc / spPGOcc per species
 fit_spatial_model <- FALSE    # TRUE -> spatial NNGP variant
 
 # Path to results
@@ -50,11 +50,23 @@ path_to_results <- file.path(
   path_finder("results"),
   "modelFit",
   version_label,
+  ecosystemType,
+  species_dir,
+  spatial_dir
+)
+
+path_to_predictions <- file.path(
+  path_finder("results"),
+  "prediction_outputs",
+  version_label,
+  ecosystemType,
   species_dir,
   spatial_dir
 )
 
 if(!dir.exists(path_to_results)) dir.create(path_to_results,
+                                            recursive = TRUE)
+if(!dir.exists(path_to_predictions)) dir.create(path_to_predictions,
                                             recursive = TRUE)
 
 
