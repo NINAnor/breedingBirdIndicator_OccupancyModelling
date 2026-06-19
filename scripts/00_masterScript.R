@@ -121,12 +121,12 @@ version <- 1
 version_label <- paste0("version_0", version)
 
 # Pipeline switches.
-fitModel       <- FALSE
-runPredictions <- FALSE
+fitModel       <- TRUE
+runPredictions <- TRUE
 runIndicators  <- TRUE
 
 # Model type switches.
-fit_single_species <- FALSE  # TRUE: PGOcc / spPGOcc per species
+fit_single_species <- TRUE  # TRUE: PGOcc / spPGOcc per species
 fit_spatial_model  <- FALSE  # TRUE: spatial NNGP model
 
 # Coordinate reference system used throughout the modelling workflow.

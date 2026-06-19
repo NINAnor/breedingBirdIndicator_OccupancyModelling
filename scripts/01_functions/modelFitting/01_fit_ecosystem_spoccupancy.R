@@ -159,6 +159,7 @@ fit_ecosystem_spoccupancy <- function(
     point_id_col = NULL,
 
     use_route_random_effect = FALSE,
+    fill_detection_vals = TRUE,
 
     covariates_to_scale = NULL,
     remove_routes_with_missing_coords = TRUE,
@@ -547,19 +548,64 @@ fit_ecosystem_spoccupancy <- function(
   # ---------------------------------------------------------------------------
   # Global detection covariates
   # ---------------------------------------------------------------------------
+  # Detection covariates ---------------------------------------------------------
 
-  det.covs <- list()
-  for (cov_name in det_covariates) {
-    tmp <- point_info %>%
-      dplyr::select(Route_point_id, Year, !!rlang::sym(cov_name)) %>%
-      tidyr::pivot_wider(names_from = Year, values_from = !!rlang::sym(cov_name))
+  if (use_route_random_effect) {
+    point_info <- point_info %>%
+      dplyr::mutate(route_id = as.numeric(as.factor(route_id)))
 
-    tmp <- tmp[match(all_points, tmp$Route_point_id), ]
-    mat <- as.matrix(tmp[, all_years, drop = FALSE])
-    rownames(mat) <- all_points
-    det.covs[[cov_name]] <- mat
+    detection_covs <- unique(c(det_covariates, "route_id"))
+  } else {
+    detection_covs <- det_covariates
   }
 
+  fill_row_values <- function(mat, original_vals) {
+    if (!fill_detection_vals) return(mat)
+
+    is_num <- is.numeric(original_vals)
+
+    for (i in seq_len(nrow(mat))) {
+      row_vals <- mat[i, ]
+
+      if (all(is.na(row_vals))) next
+
+      fill_value <- if (is_num) {
+        mean(as.numeric(row_vals), na.rm = TRUE)
+      } else {
+        mode_value(row_vals)
+      }
+
+      mat[i, is.na(row_vals)] <- fill_value
+    }
+
+    mat
+  }
+
+  make_det_cov_matrix <- function(cov_name) {
+    tmp <- point_info %>%
+      dplyr::select(Route_point_id, Year, !!rlang::sym(cov_name)) %>%
+      tidyr::pivot_wider(
+        names_from  = Year,
+        values_from = !!rlang::sym(cov_name)
+      )
+
+    tmp <- tmp[match(all_points, tmp$Route_point_id), ]
+
+    mat <- as.matrix(tmp[, all_years, drop = FALSE])
+    rownames(mat) <- all_points
+
+    mat <- fill_row_values(
+      mat = mat,
+      original_vals = point_info[[cov_name]]
+    )
+
+    mat
+  }
+
+  det.covs <- stats::setNames(
+    lapply(detection_covs, make_det_cov_matrix),
+    detection_covs
+  )
   # ---------------------------------------------------------------------------
   # Global coordinates
   # ---------------------------------------------------------------------------
@@ -613,7 +659,7 @@ fit_ecosystem_spoccupancy <- function(
   # ---------------------------------------------------------------------------
 
   occ_rhs     <- make_rhs(occ_covariates, use_route_random_effect)
-  det_rhs     <- make_rhs(det_covariates, FALSE)
+  det_rhs     <- make_rhs(det_covariates, use_route_random_effect)
   occ_formula <- as.formula(paste("~", occ_rhs))
   det_formula <- as.formula(paste("~", det_rhs))
 
@@ -634,6 +680,7 @@ fit_ecosystem_spoccupancy <- function(
   det_cov_df <- as.data.frame(lapply(det.covs, as.vector)) %>%
     dplyr::mutate(dplyr::across(where(is.character), as.factor))
   p_det <- ncol(model.matrix(det_formula, data = det_cov_df))
+  if (use_route_random_effect) p_det <- p_det - 1
 
   # ---------------------------------------------------------------------------
   # Loop over guilds / species

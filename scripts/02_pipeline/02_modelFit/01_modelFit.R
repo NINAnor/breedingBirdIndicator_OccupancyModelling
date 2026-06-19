@@ -117,6 +117,7 @@ res_forest <- fit_ecosystem_spoccupancy(
   ##########################################################################
 
   covariates_to_scale = NULL,
+  fill_detection_vals = TRUE,
 
   # Spatial models require coordinates for all routes
   remove_routes_with_missing_coords = isTRUE(fit_spatial_model),
