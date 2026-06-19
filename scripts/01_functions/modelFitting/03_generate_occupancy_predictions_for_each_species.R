@@ -396,7 +396,7 @@ generate_occupancy_predictions_for_each_species <- function(
       return        = return,
       crs           = model_crs,
       probs         = probs,
-      output_dir    = normalizePath(output_dir, winslash = "/", mustWork = FALSE)
+      output_dir    = output_dir #normalizePath(output_dir, winslash = "/", mustWork = FALSE)
     )
 
     # ------------------------------------------------------------------
