@@ -36,13 +36,23 @@ version <- 1
 version_label <- paste0("version_0", version)
 
 
-fitModel <- FALSE
-runPredictions <- TRUE
+fitModel <- TRUE
+runPredictions <- FALSE
+runIndicators <- FALSE
+fit_single_species  <- FALSE   # TRUE -> PGOcc / spPGOcc per species
+fit_spatial_model <- FALSE    # TRUE -> spatial NNGP variant
 
 # Path to results
-path_to_results <- file.path(path_finder("results"),
-                             "modelFit",
-                             version_label)
+species_dir <- if (fit_single_species) "single_species_model" else "multiple_species_model"
+spatial_dir <- if (fit_spatial_model)  "spatialModel"         else "non_spatialModel"
+
+path_to_results <- file.path(
+  path_finder("results"),
+  "modelFit",
+  version_label,
+  species_dir,
+  spatial_dir
+)
 
 if(!dir.exists(path_to_results)) dir.create(path_to_results,
                                             recursive = TRUE)

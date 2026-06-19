@@ -41,8 +41,12 @@ res_forest <- fit_ecosystem_spoccupancy(
 
   use_route_random_effect = TRUE,
 
+  # --- Model type switches ---
+  single_species    = fit_single_species,   # TRUE -> PGOcc / spPGOcc per species
+  fit_spatial_model = fit_spatial_model,    # TRUE -> spatial NNGP variant
+
   covariates_to_scale = NULL,
-  remove_routes_with_missing_coords = TRUE,
+  remove_routes_with_missing_coords = isTRUE(fit_spatial_model),
 
   n.batch       = 5,
   batch.length  = 800,
@@ -55,26 +59,6 @@ res_forest <- fit_ecosystem_spoccupancy(
 
   fit_models   = TRUE,
   save_results = TRUE,
+  verbose      = TRUE,
   output_dir   = path_to_results
 )
-
-zip_output_directory(
-  output_dir = path_to_results
-)
-
-# =============================================================================
-# USEFUL OUTPUTS FOR PLOTTING AND RICHNESS ANALYSIS
-# =============================================================================
-
-# richness_df <- res_forest$combined$richness
-# psi_df      <- res_forest$combined$psi
-# w_df        <- res_forest$combined$spatial_random_effects
-# ppc_df      <- res_forest$combined$ppc
-# spatial_df  <- res_forest$combined$spatial_params
-# occ_eff_df  <- res_forest$combined$occ_effects
-# det_eff_df  <- res_forest$combined$det_effects
-#
-# # Example:
-# head(richness_df)
-# head(psi_df)
-# head(occ_eff_df)
