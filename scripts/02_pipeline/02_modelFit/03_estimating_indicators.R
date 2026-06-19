@@ -1,59 +1,97 @@
-# Lets the load the biogeopraphic region
-# The file path is from NINA's R drive
-# R:\GeoSpatialData\BiogeographicalRegions\Norway_Biogeography\Original
-# We load and crop to the boundary of Norway
+################################################################################
+# Load spatial reference layers and calculate ecosystem indicators
+#
+# This script:
+#   1. Loads and processes biogeographic regions.
+#   2. Loads and processes protected areas.
+#   3. Calculates scaled ecosystem richness from species occupancy predictions.
+#
+# Assumptions:
+#   - Occupancy predictions represent landscape-level mean occupancy.
+#   - Protected areas approximate reference ecological conditions.
+#   - Indicators are summarized within biogeographic regions.
+#   - Richness estimates are calculated on a 1-km grid.
+################################################################################
 
+
+################################################################################
+# Load biogeographic regions
+################################################################################
+
+# R:\GeoSpatialData\BiogeographicalRegions\Norway_Biogeography\Original
 bio_regions <- get_biogeographic_region(
-  input_file = file.path(path_finder("ninaGeospatialFiles"),
-                         "BiogeographicalRegions",
-                         "Norway_Biogeography",
-                         "Original",
-                         "biogeografiske_regioner_omrade.shp"),
-  norway_boundary,
-  modelCrs,
-  output_file = file.path(path_finder("dataFolder"),
-                          "processedData",
-                          "biogeopragic_regions",
-                          "biogeographic_region.parquet"),
+  input_file = file.path(
+    geoSpatFolder,
+    "BiogeographicalRegions",
+    "Norway_Biogeography",
+    "Original",
+    "biogeografiske_regioner_omrade.shp"
+  ),
+  norway_boundary = norway_boundary,
+  modelCrs = modelCrs,
+  output_file = file.path(
+    dataFolder,
+    "processedData",
+    "biogeographic_regions",
+    "biogeographic_regions.parquet"
+  ),
   overwrite = FALSE
 )
 
 
-# Lets the load the protection regions
+################################################################################
+# Load protected areas
+################################################################################
 # The file path is from NINA's R drive
 # R:\GeoSpatialData\ProtectedSites\Norway_ProtectedAreas\Original\Natur_Vern_norge_med_svalbard_25833.gdb
-# We load and crop to the boundary of Norway
+protected_regions <- get_protected_areas(
+  input_file = file.path(
+    geoSpatFolder,
+    "ProtectedSites",
+    "Norway_ProtectedAreas",
+    "Original",
+    "Natur_Vern_norge_med_svalbard_25833.gdb"
+  ),
+  norway_boundary = norway_boundary,
+  modelCrs = modelCrs,
+  output_file = file.path(
+    dataFolder,
+    "processedData",
+    "protected_regions",
+    "protected_regions.parquet"
+  ),
+  layer = "Naturvernområde",
+  overwrite = FALSE
+)
 
-protectedRegions <- get_protected_areas(input_file = file.path(path_finder("ninaGeospatialFiles"),
-                                                               "ProtectedSites",
-                                                               "Norway_ProtectedAreas",
-                                                               "Original",
-                                                               "Natur_Vern_norge_med_svalbard_25833.gdb"),
-                                        norway_boundary,
-                                        modelCrs,
-                                        output_file = file.path(path_finder("dataFolder"),
-                                                                "processedData",
-                                                                "protected_regions",
-                                                                "protected_region.parquet"),
-                                        layer = "Naturvernområde",
-                                        overwrite = FALSE)
 
+################################################################################
+# Calculate scaled ecosystem richness
+################################################################################
 
-# Estimate indicators
-forest_scaled_richness <- calculate_scaled_ecosystem_richness(
-  input_dir = file.path(path_finder("results"),
-                        "prediction_outputs",
-                        ecosystemType),
-  reference_shape = protectedRegions,
+scaled_richness <- calculate_scaled_ecosystem_richness(
+  input_dir = path_to_predictions,
+
+  # Protected areas are used as the reference condition.
+  reference_shape = protected_regions,
+
+  # Biogeographic regions are used for regional summaries.
   categorisation_shape = bio_regions,
+
   ecosystem_type = ecosystemType,
-  value_col = "mean",
-  point_spacing = 1000,
-  forest_only_strict = TRUE,
+
+  # Column in the prediction outputs containing mean occupancy probability.
+  value_col = indicator_col,
+
+  # Aggregation grid spacing in metres.
+  point_spacing = aggregation_spacing,
+
+  # Restrict calculations to forest pixels when modelling forest ecosystems.
+  forest_only_strict = ecosystemType == "Forest",
+
   na.rm = TRUE,
-  output_dir = file.path(path_finder("results"),
-                         "indicator_outputs",
-                         ecosystemType),
+
+  output_dir = path_to_indicators,
   save_outputs = TRUE,
   overwrite = FALSE
 )

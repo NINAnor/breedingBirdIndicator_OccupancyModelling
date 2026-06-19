@@ -1,14 +1,34 @@
+################################################################################
+# Generate species occupancy predictions
+#
+# This script:
+#   1. Creates a fine-resolution raster template (100 m).
+#   2. Loads all fitted species models from the model output directory.
+#   3. Predicts occupancy probabilities at the prediction locations.
+#   4. Interpolates predictions onto a raster grid.
+#   5. Saves prediction rasters and optional diagnostic plots.
+#
+# Outputs:
+#   - Mean occupancy probability rasters for each species.
+#   - Lower and upper credible interval rasters (2.5% and 97.5%).
+#   - Species-specific occupancy maps (optional).
+################################################################################
 
-#output is readRDS of all the files in the directory that end with .rds
-# Write a function that generates the predictions for all the files in the directory and saves the output as well
-# has an option to save the plot of each species occupancy probability for the
-# ecosystem type
+
+################################################################################
+# Create raster template for prediction maps
+################################################################################
+
+# Predictions are generated on a finer spatial resolution (100 m)
+# than that used for model fitting (typically 1 km). This raster serves
+# as a common grid onto which species occupancy probabilities are projected.
+
 baseRasterForPreds <- create_template_raster(
   study_region = norway_boundary,
-  resolution = 100,
-  crs = modelCrs,
-  output_file = file.path(
-    path_finder("dataFolder"),
+  resolution   = pred_resolution,     # 100-m prediction grid
+  crs          = modelCrs,
+  output_file  = file.path(
+    dataFolder,
     "processedData",
     "prediction_grids",
     "base_raster_for_predictions_100m.tif"
@@ -17,22 +37,87 @@ baseRasterForPreds <- create_template_raster(
 )
 
 
-results <- generate_occupancy_predictions_for_each_species(
-  input_dir = normalizePath(path_to_results, winslash = "/", mustWork = FALSE),
+################################################################################
+# Generate occupancy predictions for all fitted species
+################################################################################
+
+# The function automatically:
+#
+#   - Reads all model objects (*.rds) in 'path_to_results'.
+#   - Generates occupancy predictions for every species.
+#   - Computes posterior summaries and credible intervals.
+#   - Saves prediction rasters to 'path_to_predictions'.
+#   - Optionally creates species-specific occupancy maps.
+#
+# Predictions are generated using the fixed effects only
+# (ignore_RE = TRUE), which removes route-level random effects and
+# provides smoother landscape-scale occupancy estimates.
+
+prediction_results <- generate_occupancy_predictions_for_each_species(
+
+  ##########################################################################
+  # Input model directory
+  ##########################################################################
+
+  input_dir = path_to_results,
+
+
+  ##########################################################################
+  # Prediction data
+  ##########################################################################
+
   prediction_points = predictionPoints_for_modelling,
+
   det_covariates = det_covs,
   occ_covariates = occ_covs,
-  base_raster = baseRasterForPreds,
-  model_crs = modelCrs,
-  ecosystem_type = ecosystemType,
-  output_dir = normalizePath(path_to_predictions, winslash = "/", mustWork = FALSE),
-  return = "raster",
-  probs = c(0.025, 0.975),
-  use_route_random_effect = TRUE,
-  ignore_RE = TRUE,
-  save_plots = TRUE,
-  plot_width = 8,
-  plot_height = 6,
-  plot_dpi = 300
-)
 
+
+  ##########################################################################
+  # Spatial information
+  ##########################################################################
+
+  base_raster = baseRasterForPreds,
+  model_crs   = modelCrs,
+  ecosystem_type = ecosystemType,
+
+
+  ##########################################################################
+  # Output directory
+  ##########################################################################
+
+  output_dir = path_to_predictions,
+
+
+  ##########################################################################
+  # Output type
+  ##########################################################################
+
+  # Return predictions as raster layers
+  return = "sf", # options: sf or raster
+
+  # Posterior credible intervals
+  probs = c(0.025, 0.975),
+
+
+  ##########################################################################
+  # Random effects
+  ##########################################################################
+
+  # Route random effects were included during model fitting
+  use_route_random_effect = TRUE,
+
+  # Ignore route random effects during prediction
+  # to obtain population-level occupancy estimates
+  ignore_RE = TRUE,
+
+
+  ##########################################################################
+  # Plotting options
+  ##########################################################################
+
+  save_plots = TRUE,
+
+  plot_width  = 8,
+  plot_height = 6,
+  plot_dpi    = 300
+)

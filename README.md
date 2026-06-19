@@ -1,214 +1,342 @@
-# Occupancy models for breeding birds
+# Breeding Bird Occupancy Modelling for Ecosystem Indicators
 
-A modern, well-structured R project with tools for code quality, reproducibility, and collaboration, with support for VSCode and Copilot.
+## Overview
 
-## Features
+This repository contains code for fitting hierarchical occupancy models to Norwegian breeding bird data and generating ecosystem indicators based on predicted species occupancy.
 
-✨ **Quality Tools**
-- **[Prek](https://github.com/j178/prek)**: Automated code checks and linting
-- **[Air](https://posit-dev.github.io/air/)**: Code formatting to maintain consistency
+The workflow integrates:
 
-🎯 **Modern Workflows**
-- **[Pixi](https://pixi.sh/)**: Reproducible environment management
-- **[Radian](https://github.com/randy3k/radian)**: Enhanced R REPL with better UX
-- **Git Hooks**: Automatic pre-commit checks
+* Breeding bird point count data.
+* Environmental covariates.
+* Expert-defined species lists for ecosystems.
+* Hierarchical occupancy models using **spOccupancy**.
+* Spatial prediction of species occupancy.
+* Estimation of ecosystem-level richness indicators.
 
-📚 **Best Practices**
-- Organized directory structure (data, R, tests, vignettes)
-- Environment variables for portable paths
-- GitHub Actions CI/CD workflows
+Currently, the workflow supports:
 
-🔧 **Developer Experience**
-- VS Code integration
-- Consistent coding style
-- Reproducible environments
-
-## Quick Start
-
-### Prerequisites
-
-- [Pixi](https://pixi.sh/) - Package and environment manager
-- [Git](https://git-scm.com/) - Version control
-- [Air](https://posit-dev.github.io/air/) - Formatter
-
-### Setup
-
-1. **Clone the repository (or initialize it)**
-
-   - If you are starting from an existing repository:
-     ```bash
-     git clone <repository-url>
-     cd occupancy_models_for_breeding_birds
-     ```
-
-   - If you just created the folder using copier:
-     ```bash
-     cd occupancy_models_for_breeding_birds
-     git init
-     ```
-
-2. ** Install the dependencies**
-
-   ```bash
-   pixi install
-   ```
-
-2. **Enable git hooks** (optional but recommended)
-   ```bash
-   pixi run prek install
-   ```
-
-## VS Code Setup
-
-### Install Extensions
-
-Install these recommended extensions for the best experience
-
-### Running R Code
-
-#### Open R Terminal
-
-Use the R extension to open an interactive R terminal:
-
-1. Open the Command Palette (`Ctrl+Shift+P`)
-2. Search for **"R: Create R terminal"**
-3. An R console will open in the integrated terminal
-4. Run R commands directly in the console
-
-#### Run R File
-
-Execute R code from your editor:
-
-- **Run selected line/block**: `Ctrl+Enter`
-- **Run entire file**: `Ctrl+Shift+Enter`
-- Right-click on file → **"Run"** or **"Source"**
-
-## Common Tasks
-
-### Run R Scripts
-
-```bash
-pixi run Rscript scripts/my-script.R
-```
-
-### Interactive R Development
-
-```bash
-pixi run radian
-```
-
-### Format Code
-
-Check formatting:
-```bash
-pixi run air format . --check
-```
-
-Auto-format code:
-```bash
-pixi run air format .
-```
-
-### Environment Variables
-
-Define project paths in `.Renviron`:
-
-```r
-PROJECT_DATA_DIR=data/
-PROJECT_OUTPUT_DIR=output/
-PROJECT_SCRIPTS_DIR=R/
-```
-
-Use them in code:
-```r
-data_dir <- Sys.getenv("PROJECT_DATA_DIR", "data/")
-input_file <- file.path(data_dir, "raw", "mydata.csv")
-```
-
-## Tools
-
-### Pixi
-Manages dependencies and R version. Ensures everyone uses the same environment.
-
-**Useful commands:**
-- `pixi install` - Set up environment
-- `pixi shell` - Activate environment
-- `pixi task list` - See available tasks
-
-### Prek
-Automated code quality checks on git commits.
-
-**Useful commands:**
-- `pixi run prek install` - Enable git hooks
-- `pixi run prek --all-files` - Run all checks manually
-
-### Air
-Consistent code formatting for R.
-
-**Useful commands:**
-- `pixi run air format . --check` - Check formatting
-- `pixi run air format .` - Auto-format all files
-
-### Radian
-Enhanced R REPL with better syntax highlighting and command history.
-
-```bash
-pixi run radian
-```
-
-## Development Workflow
-
-```bash
-# 1. Enter the environment
-pixi shell
-
-# 2. Make changes and test interactively
-pixi run radian
-
-# 3. Check code quality
-# NOTE: this is optional, if you install prek hooks, these checks will run automatically on commit
-pixi run air format . --check
-pixi run prek --all-files
-
-# 4. Commit
-git add .
-git commit -m "Your message"
-git push
-```
-
-## GitHub Actions
-
-The project includes CI/CD workflows that automatically:
-- Check code formatting
-- Run all quality checks
-- Validate the build
-
-These run on every push and pull request.
-
-## Tips
-
-1. **Use `Sys.getenv()` for paths** - Makes your code portable across machines
-2. **Enable prek hooks** - Catches issues before you commit
-
-## Troubleshooting
-
-**Rebuild environment**
-```bash
-pixi install --no-lockfile
-pixi install
-```
-
-## License
-
-See LICENSE file for details.
-
-## Contributing
-
-1. Make changes in a feature branch
-2. Run `pixi run air format .` and `pixi run prek --all-files`
-3. Push and create a pull request
-4. CI checks run automatically
+* **Forest ecosystems**
+* **Mountain ecosystems**
 
 ---
 
-**Happy coding!** 🚀
+## Repository structure
+
+```text
+.
+├── scripts/
+│   ├── 00_masterScript.R
+│   ├── 01_setPaths.R
+│   └── 01_functions/
+│       ├── 01_loadPackages.R
+│       ├── dataProcessing/
+│       └── modelFitting/
+│   └── 02_pipeline/
+│       ├── 01_dataPreparation/
+│           ├── 01_getBreedingBirdData.R/
+│           ├── 02_getPredictionCoords.R/
+│           ├── 03_extractCovariates.R/
+│       ├── 02_modelFit/
+│           ├── 01_modelFit.R/
+│           ├── 02_predictions.R/
+│           ├── 03_estimating_indicators.R/
+├── vignettes/
+├── README.md
+└── .Rproj
+```
+
+---
+
+## Workflow
+
+The analysis proceeds in four stages:
+
+### 1. Data preparation
+
+Breeding bird observations are loaded and filtered to the selected ecosystem and years.
+
+Environmental covariates are extracted for:
+
+* Survey locations
+* Prediction locations
+
+Prediction regions are generated for each ecosystem type.
+
+---
+
+### 2. Occupancy model fitting
+
+Species occupancy models are fitted using **spOccupancy**.
+
+Supported models include:
+
+* Single-species occupancy models (`PGOcc`)
+* Spatial occupancy models (`spPGOcc`)
+* Multi-species occupancy models (optional)
+
+Models account for:
+
+* Detection probability
+* Environmental covariates
+* Route-level random effects
+* Spatial autocorrelation (optional)
+
+Check the vignette on the model fitting for the description of the model.
+
+---
+
+### 3. Prediction
+
+Species occupancy probabilities are predicted across Norway.
+
+Outputs include:
+
+* Mean occupancy probability
+* 95% credible intervals
+* Species-specific raster maps
+* GeoParquet prediction files
+
+---
+
+### 4. Indicator estimation
+
+Predicted occupancies are aggregated to estimate ecosystem indicators.
+
+Indicators are summarized by:
+
+* Protected areas (reference condition)
+* Biogeographic regions
+
+Current indicators include:
+
+* Scaled ecosystem richness
+
+---
+
+# Scripts
+
+## Master script
+
+```text
+scripts/masterScript.R
+```
+
+Controls the complete workflow.
+
+Responsible for:
+
+* Loading user paths
+* Defining model settings
+* Running the pipeline
+* Logging model runs
+
+---
+
+## Path configuration
+
+```text
+scripts/01_setPaths.R
+```
+
+Contains machine-specific paths to:
+
+* Data folders
+* Geospatial layers
+* Output directories
+
+Users should modify this file before running the workflow.
+
+---
+
+## Data preparation
+
+### 01_getBreedingBirdData.R
+
+Loads breeding bird observations from:
+
+* SQL Server database (NINA users)
+* Cached local files
+
+Filters observations to the selected ecosystem and years.
+
+---
+
+### 02_getPredictionCoords.R
+
+Creates prediction locations used during model prediction.
+
+Forest ecosystems:
+
+* Derived from land-cover classes.
+
+Mountain ecosystems:
+
+* Derived from mountain polygons.
+
+Also loads:
+
+* Norway boundaries
+* County boundaries
+
+---
+
+### 03_extractCovariates.R
+
+Creates a common raster template.
+
+Builds a covariate stack and extracts environmental variables for:
+
+* Survey points
+* Prediction points
+
+---
+
+## Model fitting
+
+### 01_modelFit.R
+
+Fits occupancy models using **spOccupancy**.
+
+Supports:
+
+* Single-species models
+* Spatial models
+* Multi-species models
+
+Outputs:
+
+* RDS files containing fitted models
+
+---
+
+### 02_predictions.R
+
+Generates occupancy predictions for all species.
+
+Produces:
+
+* Mean occupancy probability maps
+* Lower and upper credible interval maps
+* Species plots
+
+Outputs are stored as GeoParquet files.
+
+---
+
+### 03_estimating_indicators.R
+
+Loads:
+
+* Biogeographic regions
+* Protected areas
+
+Calculates ecosystem indicators from predicted occupancies.
+
+Outputs:
+
+* Scaled richness indicators
+
+---
+
+# Input data
+
+The repository itself does not contain all required data.
+
+External data include:
+
+### Breeding bird data
+
+Survey observations used to fit occupancy models.
+
+### Environmental covariates
+
+Examples include:
+
+* Elevation (DEM)
+* Land cover
+* Climate variables
+
+### Expert species lists
+
+Species defining each ecosystem.
+
+### Geospatial layers
+
+Including:
+
+* Norway boundaries
+* Protected areas
+* Biogeographic regions
+* Mountain polygons
+
+Some datasets are available only internally at NINA.
+
+External users should consult the project documentation or contact the corresponding authors.
+
+---
+
+# Outputs
+
+Model outputs are organized as:
+
+```text
+results/
+├── modelFit/
+├── prediction_outputs/
+├── indicators/
+└── logs/
+```
+
+### modelFit
+
+Contains fitted occupancy models (`.rds`).
+
+### prediction_outputs
+
+Contains:
+
+* Occupancy prediction rasters
+* GeoParquet files
+* Figures
+
+### indicators
+
+Contains ecosystem indicators and summaries.
+
+### logs
+
+Contains logs from each model run.
+
+---
+
+# Reproducibility
+
+The project uses:
+
+* Relative paths via `here`
+* Cached intermediate files
+* GeoParquet outputs
+* Logging of model runs
+
+The workflow is designed to be reproducible across Windows, Linux, and macOS.
+
+---
+
+# Authors
+
+Kwaku Adjei
+Norwegian Institute for Nature Research (NINA)
+
+## Correspondence
+
+For questions regarding data access or model implementation, please contact:
+
+**[kwaku.adjei@nina.no](mailto:kwaku.adjei@nina.no)**
+
+---
+
+# Citation
+
+If using this repository or its outputs, please cite:
+
+> Adjei et al. Breeding Bird Occupancy Modelling for Ecosystem Indicators. Norwegian Institute for Nature Research (NINA).

@@ -1,53 +1,194 @@
-# Master script
+################################################################################
+# Master script: breeding bird occupancy modelling
+#
+# This script controls the full modelling workflow:
+#   1. Configure user-specific paths.
+#   2. Check that required folders exist.
+#   3. Load project functions.
+#   4. Set analysis options.
+#   5. Create output folders.
+#   6. Run data preparation, model fitting, and optional prediction scripts.
+#
+# Before running:
+#   - Edit scripts/01_setPaths.R for your local folder structure.
+#   - Make sure required data folders are available.
+################################################################################
 
-# Set directories
 
-## Go here and edit the path for various data sources
-# usethis::edit_r_environ()
-## Alternatively we can also do this by creating a path for the various files.
-## I will use the function, so that we can all use the same functions
+################################################################################
+# 1. User and path configuration
+################################################################################
 
-## Load the project for the code to work seemlesly.
+USER <- "kwaku"
 
-#First edit 01_setPaths.R to set the file paths for the scripts
-# and folders needed to run this script. This load a path_finder script that returns
-# a path of what you are looking for.
-source("scripts/01_setPaths.R")
+source(here::here("scripts", "01_setPaths.R"))
 
-# Ensure we can read Norwegian text, especially from expert data input
+dataFolder    <- path_finder("dataFolder", user = USER)
+geoSpatFolder <- path_finder("ninaGeospatialFiles", user = USER)
+expertFolder  <- path_finder("expertData", user = USER)
+output_root   <- normalizePath(
+  path_finder("results", user = USER),
+  mustWork = FALSE
+)
+
+
+################################################################################
+# 2. Check required folders
+################################################################################
+
+if (!dir.exists(dataFolder)) {
+  stop(
+    paste(
+      "Project data directory not found:",
+      dataFolder,
+      "",
+      "The data required to reproduce the analyses are not included in this repository.",
+      "Please request access from the corresponding authors:",
+      "",
+      "    kwaku.adjei@nina.no",
+      "",
+      "After obtaining the files, place them in the project data directory",
+      "and update the 'dataFolder' path if necessary.",
+      sep = "\n"
+    ),
+    call. = FALSE
+  )
+}
+
+# if (!dir.exists(geoSpatFolder)) {
+#   stop(
+#     paste(
+#       "Geospatial files directory not found:",
+#       geoSpatFolder,
+#       "",
+#       "NINA employees:",
+#       "- Check that the R: drive is connected.",
+#       "",
+#       "External users:",
+#       "- Download the raster and shape files described in the documentation.",
+#       "- Store them locally.",
+#       "- Update 'ninaGeospatialFiles' in scripts/01_setPaths.R.",
+#       sep = "\n"
+#     ),
+#     call. = FALSE
+#   )
+# }
+
+if (!dir.exists(expertFolder)) {
+  stop(
+    paste(
+      "Expert information directory not found:",
+      expertFolder,
+      "",
+      "The expert species lists and grouping files are required.",
+      "",
+      "Please check that the expert data folder exists and that",
+      "'expertData' is correctly set in scripts/01_setPaths.R.",
+      sep = "\n"
+    ),
+    call. = FALSE
+  )
+}
+
+
+################################################################################
+# 3. Locale and function loading
+################################################################################
+
+# Ensure Norwegian characters are read correctly in expert input files.
 Sys.setlocale("LC_CTYPE", "Norwegian_Norway.utf8")
 
-# Load the functions
+# Load all project functions.
 function_files <- list.files(
-  file.path(path_finder("functions")),
+  path_finder("functions", user = USER),
   pattern = "\\.R$",
   recursive = TRUE,
   full.names = TRUE
 )
 
-invisible(
-  lapply(function_files, source)
-)
+invisible(lapply(function_files, source))
 
 
-# Select the ecosystem of interest
-ecosystemType <- "Forest" # "Mountain"
+################################################################################
+# 4. Analysis settings
+################################################################################
+
+# Ecosystem to model.
+ecosystemType <- "Forest"   # Options: "Forest", "Mountain"
+
+# Version label used in output folder names.
 version <- 1
 version_label <- paste0("version_0", version)
 
-
-fitModel <- TRUE
+# Pipeline switches.
+fitModel       <- TRUE
 runPredictions <- TRUE
-runIndicators <- FALSE
-fit_single_species  <- TRUE  # TRUE -> PGOcc / spPGOcc per species
-fit_spatial_model <- FALSE    # TRUE -> spatial NNGP variant
+runIndicators  <- TRUE
 
-# Path to results
-species_dir <- if (fit_single_species) "single_species_model" else "multiple_species_model"
-spatial_dir <- if (fit_spatial_model)  "spatialModel"         else "non_spatialModel"
+# Model type switches.
+fit_single_species <- FALSE  # TRUE: PGOcc / spPGOcc per species
+fit_spatial_model  <- TRUE  # TRUE: spatial NNGP model
+
+# Coordinate reference system used throughout the modelling workflow.
+modelCrs <- 25833
+
+# Years included in the model.
+modelYear <- c(2021, 2025)
+
+# Temporary directory.
+TEMPDIR <- tempdir()
+
+# Setting the resolution
+pred_resolution <- 100 # in metres¨
+aggregation_spacing <- 1000
+
+
+indicator_col = "mean"
+
+
+################################################################################
+# 5. Model covariates
+################################################################################
+
+# Detection covariates affect the observation process.
+det_covs <- c("DEM", "landCover")
+
+# Occupancy covariates affect the ecological state process.
+occ_covs <- c("DEM", "landCover")
+
+
+################################################################################
+# 6. MCMC settings
+################################################################################
+
+n.batch       <- 5
+batch.length  <- 80
+n.burn        <- 200
+n.thin        <- 2
+n.chains      <- 3
+
+n.neighbors   <- 5
+n.omp.threads <- 5
+
+
+################################################################################
+# 7. Output paths
+################################################################################
+
+species_dir <- if (fit_single_species) {
+  "single_species_model"
+} else {
+  "multiple_species_model"
+}
+
+spatial_dir <- if (fit_spatial_model) {
+  "spatialModel"
+} else {
+  "non_spatialModel"
+}
 
 path_to_results <- file.path(
-  path_finder("results"),
+  output_root,
   "modelFit",
   version_label,
   ecosystemType,
@@ -56,7 +197,7 @@ path_to_results <- file.path(
 )
 
 path_to_predictions <- file.path(
-  path_finder("results"),
+  output_root,
   "prediction_outputs",
   version_label,
   ecosystemType,
@@ -64,50 +205,36 @@ path_to_predictions <- file.path(
   spatial_dir
 )
 
-if(!dir.exists(path_to_results)) dir.create(path_to_results,
-                                            recursive = TRUE)
-if(!dir.exists(path_to_predictions)) dir.create(path_to_predictions,
-                                            recursive = TRUE)
-
-
-# create temporary directory
-TEMPDIR <- tempdir()
-
-# set model crs
-modelCrs <- 25833
-
-# Set the years to use data in the models
-# Use the last seven full years
-
-modelYear <- c(2021, 2025)
+path_to_indicators <- file.path(
+  output_root,
+  "indicators_outputs",
+  version_label,
+  ecosystemType,
+  species_dir,
+  spatial_dir
+)
 
 path_for_logs <- file.path(
-  path_finder("results"),
+  output_root,
   "logs",
-  ecosystemType,
-  version_label
+  version_label,
+  ecosystemType
 )
 
-dir.create(
-  path_for_logs,
-  recursive = TRUE,
-  showWarnings = FALSE
-)
+dir.create(path_to_results, recursive = TRUE, showWarnings = FALSE)
+dir.create(path_to_predictions, recursive = TRUE, showWarnings = FALSE)
+dir.create(path_to_indicators, recursive = TRUE, showWarnings = FALSE)
+dir.create(path_for_logs, recursive = TRUE, showWarnings = FALSE)
 
 logfile <- file.path(
   path_for_logs,
-  paste0(
-    "model_run_",
-    format(Sys.time(), "%Y%m%d_%H%M%S"),
-    ".log"
-  )
+  paste0("model_run_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".log")
 )
 
 
-
-# ============================================================
-# 8. Run model with logfile
-# ============================================================
+################################################################################
+# 8. Run pipeline with logging
+################################################################################
 
 log_con <- file(logfile, open = "wt")
 
@@ -115,53 +242,106 @@ sink(log_con, split = TRUE)
 sink(log_con, type = "message")
 
 tryCatch(
-
   {
-cat("Started:", as.character(Sys.time()), "\n\n")
-cat("Selected Ecosystem:\n")
-print(ecosystemType)
 
-# Specify the covariates for occupancy and detection
-# This will be done automatically by Katherine in an excel sheet that
-# will be called to provide the covariates here
-det_covs <- c("DEM", "landCover")
-occ_covs <- c("DEM", "landCover")
+    cat("Started:", as.character(Sys.time()), "\n\n")
 
-cat("Selected years:\n")
-print(modelYear)
+    cat("Selected ecosystem:\n")
+    print(ecosystemType)
 
-# Script for loading breeding bird data
-source("scripts/02_pipeline/01_dataPreparation/01_getBreedingBirdData.R")
+    cat("\nSelected years:\n")
+    print(modelYear)
 
-# Script for loading prediction for the ecosystem type
-source("scripts/02_pipeline/01_dataPreparation/02_getPredictionCoords.R")
+    cat("\nModel settings:\n")
+    cat("Single-species model:", fit_single_species, "\n")
+    cat("Spatial model:", fit_spatial_model, "\n")
+    cat("Fit model:", fitModel, "\n")
+    cat("Run predictions:", runPredictions, "\n")
+    cat("Run indicators:", runIndicators, "\n\n")
 
-# Script for extracting covariates
-source("scripts/02_pipeline/01_dataPreparation/03_extractCovariates.R")
 
-# Run script to fit model for ecosystem type
-if(fitModel){
-source("scripts/02_pipeline/02_modelFit/01_modelFit.R")
-}
+    ##########################################################################
+    # Data preparation
+    ##########################################################################
 
-# Run script to predict for ecosystem type
-if(runPredictions){
-  source("scripts/02_pipeline/02_modelFit/02_predictions.R")
-}
+    source(here::here(
+      "scripts",
+      "02_pipeline",
+      "01_dataPreparation",
+      "01_getBreedingBirdData.R"
+    ))
 
-cat("\nFinished:", as.character(Sys.time()), "\n")
+    source(here::here(
+      "scripts",
+      "02_pipeline",
+      "01_dataPreparation",
+      "02_getPredictionCoords.R"
+    ))
+
+    source(here::here(
+      "scripts",
+      "02_pipeline",
+      "01_dataPreparation",
+      "03_extractCovariates.R"
+    ))
+
+
+    ##########################################################################
+    # Model fitting
+    ##########################################################################
+
+    if (fitModel) {
+      source(here::here(
+        "scripts",
+        "02_pipeline",
+        "02_modelFit",
+        "01_modelFit.R"
+      ))
+    }
+
+
+    ##########################################################################
+    # Prediction
+    ##########################################################################
+
+    if (runPredictions) {
+      source(here::here(
+        "scripts",
+        "02_pipeline",
+        "02_modelFit",
+        "02_predictions.R"
+      ))
+    }
+
+
+    ##########################################################################
+    # Indicator estimation
+    ##########################################################################
+
+    if (runIndicators) {
+      source(here::here(
+        "scripts",
+        "02_pipeline",
+        "03_indicators",
+        "01_indicators.R"
+      ))
+    }
+
+    cat("\nFinished:", as.character(Sys.time()), "\n")
+
   },
 
-error = function(e) {
-  cat("\nERROR:\n")
-  cat(conditionMessage(e), "\n")
-  stop(e)
-},
+  error = function(e) {
+    cat("\nERROR:\n")
+    cat(conditionMessage(e), "\n")
+    stop(e)
+  },
 
-finally = {
-  sink(type = "message")
-  sink()
-  close(log_con)
-}
+  finally = {
+    sink(type = "message")
+    sink()
+    close(log_con)
+
+    message("Log written to: ", logfile)
+  }
 )
-

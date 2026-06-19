@@ -298,10 +298,13 @@ summarize_occupancy_predictions <- function(
 
         sp_sf <- out_sf[out_sf$species == sp, ]
 
-        sf::st_write(
+        sfarrow::st_write_parquet(
           sp_sf,
-          file.path(sp_dir, paste0(sp_safe, "_occupancy_predictions.gpkg")),
-          delete_dsn = TRUE
+          file.path(
+            sp_dir,
+            paste0(sp_safe, "_occupancy_predictions.parquet")
+          ),
+          compression = "snappy"
         )
       }
     }
