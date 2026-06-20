@@ -440,6 +440,11 @@ generate_occupancy_predictions_for_each_species <- function(
     stop("No .rds files found in `input_dir`.", call. = FALSE)
   }
 
+  # Drop any NAs in the prediction data. It causes problems with aliggnment of prediction data
+
+  prediction_points <- prediction_points %>%
+    na.omit()
+
   # Build the occupancy design matrix once — columns are aligned per-model
   # below using model$x.names, so this only needs to contain a superset of
   # all possible predictors.
