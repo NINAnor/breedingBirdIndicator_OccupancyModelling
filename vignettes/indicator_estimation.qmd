@@ -1,0 +1,182 @@
+---
+title: "Calculating Scaled Ecosystem Richness Indicators"
+author: "Kwaku Peprah Adjei"
+date: "2026-06-21"
+bibliography: references.bib
+crossref:
+  fig-title: Figure
+  tbl-title: Table
+  eq-title: Equation
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    theme: cosmo
+  docx:
+    toc: true
+    number-sections: true
+execute:
+  echo: TRUE
+  warning: false
+  message: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction and Overview
+
+## Introduction
+
+Ecosystem condition describes the quality of an ecosystem in terms of its physical, chemical, structural, compositional, and functional characteristics, and its capacity to maintain ecological processes and support biodiversity over time [@maes2018; @ipbes2019]. Assessment of ecosystem condition generally requires the use of indicators, which are measurable variables that summarize attributes of ecosystem structure, composition, or functioning [@noss1990]. Such indicators provide a practical means of monitoring ecosystems and quantifying changes resulting from natural or anthropogenic pressures.
+
+Species richness is among the most widely used indicators of ecosystem composition because it integrates information across multiple taxa and has strong links to ecosystem functioning and resilience [@hooper2005]. In this workflow, species occupancy predictions (see vignette) are used to estimate expected species richness, which serves as an indicator of ecosystem condition.
+
+Assessment of ecosystem condition requires comparison with a reference condition. Reference conditions represent ecosystem states against which current conditions are evaluated and may correspond to natural, historical, least-disturbed, or management-defined states [@stoddard2006]. A reference value is the numerical value of an indicator associated with the reference condition. Ecosystem indicators can then be expressed relative to these values to quantify ecological condition.
+
+This vignette describes a workflow for calculating scaled ecosystem richness indicators from species occupancy predictions. The workflow combines biogeographic regions, protected-area reference conditions, and gridded species prediction outputs to produce regional ecosystem-condition indicators.
+
+Protected areas are assumed to approximate reference ecological conditions. Species occupancy predictions are interpreted as landscape-level mean occupancy probabilities, and expected richness is calculated as the sum of species occupancy probabilities on a regular 1-km grid. Regional reference values are then derived from protected areas and used to scale ecosystem richness relative to the best available contemporary conditions within each biogeographic region.
+
+## Overview
+
+The workflow consists of three main steps:
+
+1. Loading and harmonising biogeographic regions.
+2. Loading and harmonising protected areas representing reference conditions.
+3. Calculating scaled ecosystem richness from species occupancy predictions.
+
+Biogeographic regions are used to account for natural environmental variation and provide region-specific reference values. Protected areas are assumed to represent ecosystems subject to relatively low levels of anthropogenic disturbance and therefore serve as proxies for reference conditions. Species occupancy predictions are aggregated to expected richness and subsequently scaled relative to regional reference values.
+
+# Load shape files
+
+## Load biogeographic regions
+
+Biogeographic regions are used to summarize indicators regionally. The source shapefile is read, aligned with the Norway boundary, transformed to the model coordinate reference system, and saved as a GeoParquet file for subsequent analyses.
+
+```r
+bio_regions <- get_biogeographic_region(
+  input_file = file.path(
+    geoSpatFolder,
+    "BiogeographicalRegions",
+    "Norway_Biogeography",
+    "Original",
+    "biogeografiske_regioner_omrade.shp"
+  ),
+  norway_boundary = norway_boundary,
+  modelCrs = modelCrs,
+  output_file = file.path(
+    dataFolder,
+    "processedData",
+    "biogeographic_regions",
+    "biogeographic_regions.parquet"
+  ),
+  overwrite = FALSE
+)
+```
+
+## Load protected areas
+
+Protected areas are used as proxies for reference conditions. These areas are assumed to represent relatively intact ecosystems and provide benchmarks against which ecosystem condition can be evaluated. The protected-area layer is read from the NINA geodatabase, harmonised with the Norway boundary and model coordinate reference system, and saved as a GeoParquet file.
+
+```r
+protected_regions <- get_protected_areas(
+  input_file = file.path(
+    geoSpatFolder,
+    "ProtectedSites",
+    "Norway_ProtectedAreas",
+    "Original",
+    "Natur_Vern_norge_med_svalbard_25833.gdb"
+  ),
+  norway_boundary = norway_boundary,
+  modelCrs = modelCrs,
+  output_file = file.path(
+    dataFolder,
+    "processedData",
+    "protected_regions",
+    "protected_regions.parquet"
+  ),
+  layer = "Naturvernområde",
+  overwrite = FALSE
+)
+```
+
+# Calculate scaled ecosystem expected richness
+
+The function `calculate_scaled_ecosystem_richness()` reads species prediction outputs, extracts predicted occupancy values, calculates expected richness, and scales richness relative to protected-area reference conditions within each biogeographic region.
+
+```r
+scaled_richness <- calculate_scaled_ecosystem_richness(
+  input_dir = path_to_predictions,
+  reference_shape = protected_regions,
+  categorisation_shape = bio_regions,
+  ecosystem_type = ecosystemType,
+  value_col = indicator_col,
+  point_spacing = aggregation_spacing,
+  forest_only_strict = ecosystemType == "Forest",
+  na.rm = TRUE,
+  output_dir = path_to_indicators,
+  save_outputs = TRUE,
+  overwrite = FALSE
+)
+```
+
+For forest ecosystems, the workflow can restrict the reference condition to protected forest ecosystems. When `forest_only_strict = TRUE`, only protected areas classified as national parks or nature reserves and designated as forest protection areas are retained.
+
+## Reference value extraction
+
+Reference conditions provide the benchmark against which ecosystem condition is evaluated [@stoddard2006; @maes2018]. In this workflow, protected areas are assumed to approximate reference ecological conditions for forest ecosystems. Thus, the reference values represent the best available contemporary conditions rather than pristine or historical states.
+
+Reference values for forest ecosystems are estimated by generating a regular grid of points within protected-area polygons. Species occupancy predictions are then extracted at those points. The helper function `extract_species_values_at_reference()` supports both `sf` objects and `terra::SpatRaster` prediction layers. For vector predictions, values are assigned using nearest-feature matching, whereas raster predictions are extracted directly from the corresponding grid cells.
+
+The resulting object contains predicted occupancy values for each species at all reference points. Species names are stored as separate columns using standardized column names.
+
+## Expected richness
+
+Expected richness is calculated as the sum of predicted occupancy probabilities across species:
+
+```r
+expected_richness = rowSums(species_prediction_values, na.rm = TRUE)
+```
+
+This approach provides a continuous estimate of richness in which each species contributes proportionally to its predicted occupancy probability rather than through binary presence or absence. Consequently, expected richness can be interpreted as the expected number of species occurring at a location [@dorazio2006].
+
+## Regional reference richness
+
+Expected richness values extracted from protected areas are summarized within each biogeographic region. The maximum expected richness observed among reference points is used as the regional reference value:
+
+```r
+reference_richness = max_expected_richness
+```
+
+This creates a region-specific benchmark against which all grid cells within the same biogeographic region are evaluated. Using region-specific reference values accounts for natural variation in species richness across environmental gradients and avoids comparing ecosystems with inherently different biodiversity potentials.
+
+## Scaling richness
+
+Scaled richness is calculated as
+
+$$
+\text{Scaled richness} =
+\frac{
+R_i-R_{\min}
+}{
+R_{\mathrm{ref},r}-R_{\min}
+},
+$$
+
+where $R_i$ is the expected richness at location $i$, $R_{\min}$ is the minimum expected richness observed across the prediction domain, and $R_{\mathrm{ref},r}$ is the regional reference richness derived from protected areas in biogeographic region $r$.
+
+Scaled richness values are constrained to the interval $[0,1]$, where:
+
+* values close to $1$ indicate richness approaching the best reference conditions observed in the region;
+* values close to $0$ indicate low richness relative to both the regional reference condition and the lower bound of the study area.
+
+Consequently, scaled richness represents a relative ecosystem-condition indicator rather than an estimate of absolute species richness.
+
+## Interpretation
+
+The final scaled richness indicator expresses ecosystem condition as the degree to which predicted species richness resembles the best available reference conditions within each biogeographic region. Values approaching one indicate ecosystems whose expected richness is comparable to protected reference ecosystems, whereas values approaching zero indicate relatively species-poor ecosystems.
+
+Because the indicator is derived from occupancy probabilities rather than species inventories, it should be interpreted as a model-based measure of relative ecosystem condition rather than a direct census of biodiversity.

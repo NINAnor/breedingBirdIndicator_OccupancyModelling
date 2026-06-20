@@ -451,6 +451,13 @@ results$combined$occ_effects
 results$combined$det_effects
 ```
 
+## Modelling challenges
+
+During model fitting, substantial computational challenges were encountered when fitting the multi-species spatial and non-spatial occupancy models for the 24 forest species. In particular, posterior predictive checks using `ppcOcc()` failed because of insufficient memory, with an error indicating an attempted allocation of approximately $9$GB.
+
+The issue arose because posterior predictive checks require storing large numbers of posterior samples and replicated datasets. To overcome this limitation, the posterior samples were heavily thinned before running `ppcOcc()`. Reducing the number of retained samples substantially decreased the memory requirements associated with the posterior predictive checks, allowing model diagnostics to be completed successfully while maintaining an adequate representation of the posterior distribution.
+
+
 ## Interpretation
 
 Positive occupancy coefficients indicate that occupancy probability increases with the covariate. Positive detection coefficients indicate that detection probability increases with the detection covariate.
