@@ -1,0 +1,460 @@
+---
+title: "Bayesian Occupancy Modelling Framework for Breeding Bird Indicators"
+author: "Kwaku Peprah Adjei"
+date: "2026-06-19"
+bibliography: references.bib
+crossref:
+  fig-title: Figure
+  tbl-title: Table
+  eq-title: Equation
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    theme: cosmo
+  docx:
+    toc: true
+    number-sections: true
+execute:
+  echo: TRUE
+  warning: false
+  message: false
+---
+
+```{r setup, include=FALSE}
+#install.packages("DiagrammeR")
+library(DiagrammeR)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+Occupancy models provide a flexible framework for estimating species occurrence while accounting for imperfect detection. These models are particularly well suited for breeding bird monitoring programmes, where repeated surveys are used to infer occupancy patterns and trends from detection–non-detection data.
+
+This vignette presents a Bayesian occupancy modelling framework for breeding bird monitoring data using the `spOccupancy` package [@doser2022spoccupancy]. The framework supports single-species and multi-species occupancy models, with optional spatial random effects to account for residual spatial dependence among sampling locations.
+
+The primary objective is to estimate breeding bird indicators while accounting for imperfect detection, spatial autocorrelation, and variation among species or ecological guilds. The workflow covers data preparation, specification of occupancy and detection covariates, model fitting, posterior inference, and model evaluation. Both spatial and non-spatial formulations are considered, allowing the framework to be adapted to a range of ecological questions and monitoring designs.
+
+
+# Workflow
+
+@fig-workflow summarizes the workflow implemented in this framework. Starting from raw breeding bird survey data, the workflow performs data validation, constructs detection histories, prepares occupancy and detection covariates, and fits single-species or multi-species occupancy models with optional spatial random effects. Posterior summaries and model diagnostics are then used to estimate occupancy probabilities, species richness, and other ecological indicators.
+
+
+```{r}
+#| echo: false
+#| fig-width: 12
+#| fig-height: 16
+#| out-width: "100%"
+#| fig-cap: " Workflow of the Bayesian occupancy modelling framework for breeding bird indicators, from data preparation and covariate construction to model fitting, posterior inference, and model evaluation."
+#| label: fig-workflow
+
+library(DiagrammeR)
+
+DiagrammeR::grViz("
+digraph occupancy_framework {
+
+graph [
+  layout = dot,
+  rankdir = TB,
+  nodesep = 0.6,
+  ranksep = 1.0
+]
+
+node [
+  shape = box,
+  style = rounded,
+  fontsize = 16
+]
+
+edge [
+  penwidth = 1.5
+]
+
+A [label = 'Raw breeding bird survey data']
+B [label = 'Validate required columns']
+C [label = 'Create detection/non-detection records']
+D [label = 'Build species × site × year array']
+E [label = 'Standardize survey effort']
+F [label = 'Prepare occupancy covariates']
+G [label = 'Prepare detection covariates']
+H [label = 'Scale numeric covariates']
+I [label = 'Assign species to guilds or species groups']
+J [label = 'Model configuration', shape = diamond]
+K [label = 'PGOcc:\\nsingle-species non-spatial']
+L [label = 'spPGOcc:\\nsingle-species spatial']
+M [label = 'msPGOcc:\\nmulti-species non-spatial']
+N [label = 'spMsPGOcc:\\nmulti-species spatial']
+O [label = 'Posterior summaries']
+P [label = 'Occupancy ψ']
+Q [label = 'Latent occupancy z']
+R [label = 'Species richness']
+S [label = 'Spatial effects w']
+T [label = 'Diagnostics:\\nPPC, WAIC, R-hat']
+
+A -> B
+B -> C
+C -> D
+D -> E
+E -> F
+E -> G
+F -> H
+G -> H
+H -> I
+I -> J
+J -> K
+J -> L
+J -> M
+J -> N
+K -> O
+L -> O
+M -> O
+N -> O
+O -> P
+O -> Q
+O -> R
+O -> S
+O -> T
+}
+")
+```
+
+# Getting the data ready 
+
+## Input data
+
+A separate vignette describes the processing of breeding bird data from the Norwegian national breeding bird monitoring programme, [Hekkefulgovervåkingen](https://hekkefuglovervakingen.nina.no/Fugl/Default.aspx?ReturnUrl=%2fFugl%2f) (formerly TOV-E)[@kaalaas2022norsk]. The processed data used as input to the occupancy models are expected to contain:
+
+* site identifier;
+* species name;
+* survey year;
+* count or detection information;
+* longitude and latitude;
+* occupancy covariates;
+* detection covariates.
+
+## Monitoring design
+
+Hekkefuglovervåkingen  was gradually established between 2005 and 2011 and currently comprises approximately $492$ survey routes distributed throughout Norway [@kaalaas2022norsk]. Each route contains between $12$ and $20$ sampling points, and approximately $80\%$ of the routes are surveyed annually.
+
+Data are collected mainly by experienced volunteer birdwatchers following a [standardized sampling protocol](https://hekkefuglovervakingen.nina.no/Fugl/public/papirskjema/MethodologyEng.pdf). Surveys are conducted once each year between 20 May and 10 June, depending on latitude, and are carried out under suitable weather conditions. Survey routes are selected randomly within five geographical regions: eastern, southern, western, central, and northern Norway.
+
+## Construction of detection histories
+
+Because the monitoring programme provides single-visit count data, repeated observations required for occupancy modelling are not directly available. Two alternative approaches were considered:
+
+ - Treat sampling points within a route as survey replicates.
+ - Use consecutive years as repeated surveys and treat year as the replicate.
+
+In this framework, occupancy is modelled at the sampling-point level to capture fine-scale environmental heterogeneity, while route identity is incorporated as a random effect. This approach acknowledges that some assumptions of occupancy models may be violated [@mackenzie2017occupancy; @roemer2021automatic]. In particular,
+
+ - observations along a route are not fully independent because they are collected by the same observer;
+ - occupancy may vary within a year, potentially violating the closure assumption.
+
+Despite these limitations, occupancy modelling remains a useful framework for estimating breeding bird indicators while accounting for imperfect detection.
+
+An alternative approach would be a multi-scale occupancy model, where occupancy is modelled at the route level and detection is modelled at the sampling-point level conditional on species availability [@sandercock2025utility; @nichols2008multi; @direnzo2022ignoring; @kleiven2023dynamic].
+
+## Detection and non-detection data
+
+To fit occupancy models, count data are converted to binary detection histories:
+$$
+y_{ijk} =
+\begin{cases}
+1, & \text{if species } i \text{ is detected at site } j \text{ in year } k \\
+0, & \text{otherwise}
+\end{cases}
+$$
+where:
+
+* $i = 1,\dots,N$ indexes species,
+* $j = 1,\dots,J$ indexes sampling points,
+* $k = 1,\dots,K$ indexes survey years or sampling occasions.
+
+These detection histories form the response array used by the occupancy models.
+
+## Survey effort standardisation
+
+A key feature of this framework is that survey effort is standardized before filtering species or ecological guilds.
+
+Detection histories are organized into a three-dimensional array, $\mathbf{Y} = {y_{ijk}}$ with dimensions: $N \times J \times K$, where $N$ is the number of species, $J$ is the number of sampling points, and $K$ is the number of survey occasions.
+
+For surveyed site–occasion combinations, species that were not recorded are assigned a value of zero rather than treated as missing observations. Consequently, non-detections are defined consistently across single-species and multi-species analyses.
+
+This standardization ensures that differences among species, ecological guilds, and ecosystem types reflect biological variation rather than inconsistencies in survey effort. As a result, occupancy estimates and derived indicators remain comparable across different subsets of species and spatial scales.
+
+# Brief description of Hierarchical occupancy model n `spOccupancy`
+
+We refer to @doser2022spoccupancy for further information. We only present a summary here. Covariates used for occupancy and detection processes are presented in another vignette.
+
+Occupancy models separate the ecological process from the observation process. 
+
+The ecological process is:
+$$
+z_{ij} \sim \text{Bernoulli}(\psi_{ij})
+$$
+where:
+
+* $z_{ij}$ is the latent true occupancy state;
+* $\psi_{ij}$ is the probability that species $i$ occupies site $j$.
+
+The observation process is:
+$$
+y_{ijk} \sim \text{Bernoulli}(z_{ij}p_{ijk})
+$$
+where:
+
+* $p_{ijk}$ is the detection probability;
+* $y_{ijk}=0$ may mean either true absence or non-detection.
+
+## Occupancy submodel
+
+For a non-spatial single-species model:
+$$
+\text{logit}(\psi_j) = \beta_0 + \sum_{q=1}^{Q} x_{jq}\beta_q
+$$
+
+For a multi-species model:
+$$
+\text{logit}(\psi_{ij}) =
+\beta_{0i} + \sum_{q=1}^{Q} x_{jq}\beta_{qi}
+$$
+
+where:
+
+* $x_{jq}$ is occupancy covariate $q$ at site $j$;
+* $\beta_{qi}$ is the species-specific occupancy effect.
+
+## Detection submodel
+
+Detection probability is modelled as:
+$$
+\text{logit}(p_{ijk}) =
+\alpha_{0i} + \sum_{r=1}^{R} v_{jkr}\alpha_{ri}
+$$
+where:
+
+* $v_{jkr}$ is detection covariate $r$;
+* $\alpha_{ri}$ is the species-specific detection effect.
+
+Detection covariates may include observer effort, survey year, weather, or other observation-level variables.
+
+
+## Community-level hierarchical priors
+
+For multi-species models fitted with `msPGOcc()` or `spMsPGOcc()` [doser2022spoccupancy], species-specific coefficients are treated as exchangeable draws from community-level distributions.
+
+For occupancy coefficients:
+$$
+\beta_{qi} \sim \text{Normal}(\mu_{\beta_q}, \tau_{\beta_q}^{2})
+$$
+
+For detection coefficients:
+$$
+\alpha_{ri} \sim \text{Normal}(\mu_{\alpha_r}, \tau_{\alpha_r}^{2})
+$$
+where:
+
+* $\mu_{\beta_q}$ is the community-level mean occupancy effect for covariate $q$;
+* $\tau_{\beta_q}^{2}$ is the among-species variance in occupancy responses;
+* $\mu_{\alpha_r}$ is the community-level mean detection effect for covariate $r$;
+* $\tau_{\alpha_r}^{2}$ is the among-species variance in detection responses.
+
+The community-level priors can be written as:
+$$
+\begin{split}
+\mu_{\beta_q} & \sim \text{Normal}(0, \sigma_{\mu_\beta}^{2}) \\
+\tau_{\beta_q}^{2} & \sim \text{Inverse-Gamma}(a_\beta, b_\beta) \\
+\mu_{\alpha_r} & \sim \text{Normal}(0, \sigma_{\mu_\alpha}^{2}) \\
+\tau_{\alpha_r}^{2} & \sim \text{Inverse-Gamma}(a_\alpha, b_\alpha)
+\end{split}
+$$
+
+This structure allows partial pooling across species. Rare species borrow information from the community, while common species are informed more strongly by their own detection histories.
+
+## Spatial occupancy model
+
+Spatial occupancy models extend the non-spatial formulation by including a spatial random effect in the occupancy process:
+
+$$
+\text{logit}(\psi_{ij}) =
+\beta_{0i} + \sum_{q=1}^{Q} x_{jq}\beta_{qi} + w_{ij},
+$$
+where $w_{ij}$ represents residual spatial variation in occupancy for species $i$ at site $j$ after accounting for measured site-level covariates.
+
+For large spatial datasets, modelling the full Gaussian process can be computationally expensive because it requires operations on dense covariance matrices. This framework therefore uses a nearest-neighbor Gaussian process approximation. Under this approach, the spatial random effect at each site is modelled conditionally on a small set of nearby sites rather than on all other sampling locations.
+
+For species $i$, let $\mathbf{w}*i = (w*{i1}, \ldots, w_{iJ})^\top$ denote the vector of spatial random effects across all $J$ sampling points. The nearest-neighbor Gaussian process approximates the joint distribution of $\mathbf{w}_i$ as a product of low-dimensional conditional distributions:
+
+$$
+p(\mathbf{w}*i) \approx
+\prod*{j=1}^{J}
+p\left(w_{ij} \mid \mathbf{w}_{i,N(j)}\right),
+$$
+where $N(j)$ is the set of nearest neighbors for site $j$, usually restricted to a small number of previously ordered sites. This reduces the computational burden while preserving local spatial dependence.
+
+The underlying spatial covariance between sites $j$ and $j'$ is defined as
+$$
+C_i(j,j') =
+\sigma_i^2 \exp(-\phi_i d_{jj'}),
+$$
+where $d_{jj'}$ is the distance between sites $j$ and $j'$, $\sigma_i^2$ is the spatial variance parameter, and $\phi_i$ controls the rate at which spatial dependence declines with distance.
+
+The effective spatial range is defined as:
+$$
+\text{Effective range}_i = \frac{3}{\phi_i}.
+$$
+
+This quantity gives the approximate distance at which spatial correlation becomes negligible under the exponential covariance function. Larger values indicate broader-scale spatial dependence, whereas smaller values indicate more localized spatial structure.
+
+In this framework, nearest-neighbor spatial random effects are used to account for residual spatial autocorrelation in occupancy while maintaining computational feasibility for large breeding bird monitoring datasets.
+
+# Fitting the model in this workflow
+
+Models are fitted using MCMC. Posterior summaries include:
+
+* posterior mean;
+* posterior standard deviation;
+* 95% credible interval;
+* posterior probability that a coefficient is positive.
+
+For a coefficient $\theta$, the posterior probability of a positive effect is:
+$Pr(\theta > 0 \mid \mathbf{Y})$.
+
+This quantity is useful for ecological interpretation of covariate effects.
+
+## Wrapper function around `spOccupancy`
+
+To flexibly fit the models, we write a function `fit_ecosystem_spoccupancy` which routes models according to two user choices:
+
+| `single_species` | `fit_spatial_model` | spOccupancy function |
+| ---------------- | ------------------- | -------------------- |
+| `TRUE`           | `FALSE`             | `PGOcc()`            |
+| `TRUE`           | `TRUE`              | `spPGOcc()`          |
+| `FALSE`          | `FALSE`             | `msPGOcc()`          |
+| `FALSE`          | `TRUE`              | `spMsPGOcc()`        |
+
+### Species grouping
+
+The framework supports three grouping strategies:
+
+1. **Single-species models**: each species is fitted independently.
+2. **User-defined guilds**: species are grouped using a supplied guild table.
+3. **Automatic grouping**: species are split into groups when the number of species exceeds `maxSpeciesInGrps`.
+
+## Derived ecological quantities
+
+### Occupancy probability
+
+$\psi_{ij}$ is the posterior probability that species $i$ occupies site $j$.
+
+### Latent occupancy state
+
+$z_{ij}$ is the posterior distribution of true occurrence.
+
+### Species richness
+
+For multi-species models, richness at site $j$ is estimated as: $S_j =\sum_{i=1}^{N} z_{ij}$. Posterior summaries of $S_j$ provide expected richness and credible intervals.
+
+### Spatial random effects
+
+$w_{ij}$ represents spatial structure not explained by covariates. Mapping (w_{ij}) can reveal residual spatial clustering.
+
+
+
+## Model diagnostics
+
+### Posterior predictive checks
+
+Posterior predictive checks compare observed data to replicated data generated from the fitted model.
+
+Using a discrepancy statistic (T(\cdot)), the Bayesian p-value is: $p_B = Pr\{T(\mathbf{Y}^{rep}) > T(\mathbf{Y}) \mid \mathbf{Y}\}$. Values close to $0.5$ indicate adequate fit. Values close to 0 or 1 may indicate lack of fit.
+
+In `spOccupancy`, posterior predictive checks can be computed with:
+
+```r
+ppcOcc(model, fit.stat = "freeman-tukey", group = 1)
+```
+
+### WAIC
+
+Model comparison can be performed using WAIC:
+
+```r
+waicOcc(model)
+```
+
+Lower WAIC values indicate better expected out-of-sample predictive performance, conditional on the set of models being compared.
+
+### MCMC convergence
+
+Convergence is assessed using the Gelman-Rubin statistic $\hat{R}$. Values close to $1$ indicate acceptable convergence.
+
+## Output structure
+
+The framework returns a nested R object containing:
+
+* ecosystem name;
+* model type;
+* occupancy covariates;
+* detection covariates;
+* results by guild or species;
+* combined summary tables.
+
+The combined output may include:
+
+* `psi`: occupancy probability summaries;
+* `z`: latent occupancy summaries;
+* `richness`: species richness estimates;
+* `spatial_random_effects`: posterior summaries of (w);
+* `spatial_params`: (\sigma^2), (\phi), and effective range;
+* `occ_effects`: occupancy covariate effects;
+* `det_effects`: detection covariate effects;
+* `ppc`: posterior predictive checks.
+
+## Example usage
+
+```r
+results <- fit_ecosystem_spoccupancy(
+  ecosystemBreedingBird = bird_data,
+  ecosystemType = "Forest",
+  occ_covariates = c("elevation", "forest_cover"),
+  det_covariates = c("observer_effort"),
+  species_groupings = guild_table,
+  single_species = FALSE,
+  fit_spatial_model = TRUE,
+  n.batch = 1000,
+  batch.length = 25,
+  n.burn = 5000,
+  n.thin = 5,
+  n.chains = 3
+)
+```
+
+Extract occupancy estimates:
+
+```r
+results$combined$psi
+```
+
+Extract richness estimates:
+
+```r
+results$combined$richness
+```
+
+Extract covariate effects:
+
+```r
+results$combined$occ_effects
+results$combined$det_effects
+```
+
+## Interpretation
+
+Positive occupancy coefficients indicate that occupancy probability increases with the covariate. Positive detection coefficients indicate that detection probability increases with the detection covariate.
+
+Spatial effects should be interpreted as residual spatial structure after accounting for measured covariates. Large positive spatial effects indicate sites with higher occupancy than expected from the covariates alone.
+
+Species richness estimates summarize community-level occupancy patterns and can be used as breeding bird biodiversity indicators.

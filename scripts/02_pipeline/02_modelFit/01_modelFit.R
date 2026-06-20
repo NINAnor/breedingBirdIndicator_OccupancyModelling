@@ -72,7 +72,7 @@ res_forest <- fit_ecosystem_spoccupancy(
   species_groupings = NULL,
 
   # Maximum number of species per ecological group.
-  maxSpeciesInGrps = 3,
+  maxSpeciesInGrps = maxSpeciesInGrps,
 
 
   ##########################################################################

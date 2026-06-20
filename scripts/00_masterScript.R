@@ -128,7 +128,7 @@ runPredictions <- TRUE
 runIndicators  <- TRUE
 
 # Model type switches.
-fit_single_species <- TRUE  # TRUE: PGOcc / spPGOcc per species
+fit_single_species <- FALSE  # TRUE: PGOcc / spPGOcc per species
 fit_spatial_model  <- FALSE  # TRUE: spatial NNGP model
 
 # Coordinate reference system used throughout the modelling workflow.
@@ -144,8 +144,11 @@ TEMPDIR <- tempdir()
 pred_resolution <- 100 # in metres¨
 aggregation_spacing <- 1000
 
-
+# Which column of predictions should be used to estimate indicators
 indicator_col = "mean"
+
+# How many groups should be used in grouping the species
+maxSpeciesInGrps <- 24
 
 
 ################################################################################
@@ -166,10 +169,10 @@ occ_covs <- c("DEM", "landCover")
 n.batch       <- 20
 batch.length  <- 500
 n.burn        <- 5000
-n.thin        <- 10
+n.thin        <- 50 # use 10 for single species.
 n.chains      <- 3
 
-n.neighbors   <- 5
+n.neighbors   <- 10
 n.omp.threads <- 5
 
 
