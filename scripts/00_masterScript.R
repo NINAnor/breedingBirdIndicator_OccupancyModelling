@@ -19,7 +19,9 @@
 # 1. User and path configuration
 ################################################################################
 
-USER <- "kwaku"
+USER <- "kwaku" # options: all or kwaku
+# If you are using the OneDrive, specify all. But if you are running on
+# your own local disk, specify youur woth USER in the 01_setPaths.R script
 
 source(here::here("scripts", "01_setPaths.R"))
 
@@ -121,7 +123,7 @@ version <- 1
 version_label <- paste0("version_0", version)
 
 # Pipeline switches.
-fitModel       <- TRUE
+fitModel       <- FALSE
 runPredictions <- TRUE
 runIndicators  <- TRUE
 
@@ -161,10 +163,10 @@ occ_covs <- c("DEM", "landCover")
 # 6. MCMC settings
 ################################################################################
 
-n.batch       <- 5
-batch.length  <- 80
-n.burn        <- 200
-n.thin        <- 2
+n.batch       <- 20
+batch.length  <- 500
+n.burn        <- 5000
+n.thin        <- 10
 n.chains      <- 3
 
 n.neighbors   <- 5
@@ -299,6 +301,8 @@ tryCatch(
       ))
     }
 
+    # Rest for 10 minutes
+    Sys.sleep(10 * 60)
 
     ##########################################################################
     # Prediction
@@ -317,6 +321,8 @@ tryCatch(
     ##########################################################################
     # Indicator estimation
     ##########################################################################
+    # Rest for 10 minutes
+    Sys.sleep(10 * 60)
 
     if (runIndicators) {
       source(here::here(

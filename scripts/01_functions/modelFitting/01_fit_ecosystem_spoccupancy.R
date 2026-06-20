@@ -1321,6 +1321,9 @@ fit_ecosystem_spoccupancy <- function(
         )
       }
     } # end multi-species branch
+
+    # Pause for 30 seconds between models
+    Sys.sleep(30)
   } # end guild loop
 
   # ---------------------------------------------------------------------------

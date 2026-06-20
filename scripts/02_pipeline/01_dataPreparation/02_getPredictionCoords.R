@@ -85,7 +85,7 @@ if (ecosystemType == "Forest") {
 
     sample_prediction_points_from_raster(
       selected_codes = c(311, 312, 313),
-      n_points = 10000,
+      n_points = 100000,
       output_file = file.path(
         dataFolder,
         "processedData",
@@ -132,7 +132,7 @@ if (ecosystemType == "Forest") {
   ) %>%
 
     sf::st_sample(
-      size = 10000,
+      size = 100000,
       type = "regular"
     ) %>%
 
