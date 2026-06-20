@@ -123,7 +123,7 @@ version <- 1
 version_label <- paste0("version_0", version)
 
 # Pipeline switches.
-fitModel       <- FALSE
+fitModel       <- TRUE
 runPredictions <- TRUE
 runIndicators  <- TRUE
 

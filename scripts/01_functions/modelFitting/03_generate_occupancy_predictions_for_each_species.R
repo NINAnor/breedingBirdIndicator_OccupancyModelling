@@ -602,7 +602,7 @@ generate_occupancy_predictions_for_each_species <- function(
       ))
 
       species_output_dir <- normalizePath(
-        file.path(output_dir, ecosystem_type, sp_safe),
+        file.path(output_dir, sp_safe),
         winslash = "/",
         mustWork = FALSE
       )
