@@ -129,7 +129,7 @@ runIndicators  <- TRUE
 
 # Model type switches.
 fit_single_species <- FALSE  # TRUE: PGOcc / spPGOcc per species
-fit_spatial_model  <- FALSE  # TRUE: spatial NNGP model
+fit_spatial_model  <- TRUE # TRUE: spatial NNGP model
 
 # Coordinate reference system used throughout the modelling workflow.
 modelCrs <- 25833

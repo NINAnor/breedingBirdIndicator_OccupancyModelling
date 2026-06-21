@@ -1,0 +1,266 @@
+---
+title: "Loading and Filtering Breeding Bird Data"
+author: "Kwaku Peprah Adjei"
+#date: "2026-06-21"
+date: today
+bibliography: references.bib
+crossref:
+  fig-title: Figure
+  tbl-title: Table
+  eq-title: Equation
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    theme: cosmo
+  docx:
+    toc: true
+    number-sections: true
+execute:
+  echo: TRUE
+  warning: false
+  message: false
+---
+
+# Introduction
+
+Occupancy models require biological observations that describe species occurrences across space and time. Before environmental covariates can be extracted or occupancy models fitted, it is necessary to assemble a standardized dataset of breeding bird observations corresponding to the ecosystem and time period of interest.
+
+This vignette describes the workflow used to retrieve, cache, and filter breeding bird survey data for ecosystem-specific occupancy modelling.
+
+The workflow consists of five stages:
+
+1. Connecting to the breeding bird database.
+2. Defining data sources and cache locations.
+3. Loading breeding bird count data.
+4. Retrieving the expert-defined species list.
+5. Filtering observations to the target ecosystem and modelling period.
+
+The resulting dataset forms the biological foundation for all subsequent occupancy analyses.
+
+# Background
+
+Occupancy models estimate the probability that a species occurs at a site while accounting for imperfect detection [@mackenzie2002occupancy; @mackenzie2006occupancy]. The quality of occupancy estimates depends critically on the quality and consistency of the underlying survey data.
+
+National breeding bird monitoring programs typically collect observations for hundreds of species across multiple ecosystems and decades. However, ecosystem indicators are generally designed to represent specific ecological communities rather than the entire bird fauna. Consequently, observations must be filtered to retain only species considered representative of the ecosystem under study.
+
+In this workflow, species selection is based on expert knowledge, ensuring that occupancy indicators reflect the ecological condition of the target ecosystem rather than unrelated habitats.
+
+
+# Data Sources
+
+Two primary data sources are used:
+
+1. Breeding bird survey observations.
+2. Expert-defined species lists.
+
+Breeding bird observations originate from the Norwegian terrestrial ecosystem monitoring programme [Hekkefulgovervåkingen](https://hekkefuglovervakingen.nina.no/Fugl/Default.aspx?ReturnUrl=%2fFugl%2f) (formerly TOV-E)[@kaalaas2022norsk], whereas expert species lists define which species should contribute to ecosystem-specific indicators.
+
+To improve reproducibility and reduce dependency on external infrastructure, processed bird observations are cached locally and reused whenever possible.
+
+
+## Connecting to the Hekkefulgovervåkingen Database
+
+### Motivation
+
+The preferred source of breeding bird observations is the central monitoring database. Direct access ensures that analyses use the most recent validated observations.
+
+However, database access may not always be available due to network restrictions or user permissions. For this reason, the workflow is designed to operate even when the database cannot be reached.
+
+
+### Establishing a Connection
+
+The workflow attempts to connect to the SQL Server database containing breeding bird monitoring data:
+
+```r
+con <- DBI::dbConnect(
+  odbc::odbc(),
+  Driver   = "SQL Server",
+  Server   = contact_authors,
+  Database = "TOVTaksering",
+  Trusted_Connection = "True"
+)
+```
+
+Connection errors are handled gracefully through `tryCatch()`. If a connection cannot be established, the workflow automatically falls back to locally cached files.
+
+This design increases robustness and allows analyses to be reproduced without requiring continuous database access.
+
+## Loading Breeding Bird Survey Data
+
+### Using Cached Data
+
+Whenever possible, the workflow loads a previously processed dataset:
+
+```r
+breedingBirdData <- readr::read_csv(
+  breeding_bird_cache,
+  show_col_types = FALSE
+)
+```
+
+Using cached files provides several advantages:
+
+* faster execution;
+* reduced database load;
+* improved reproducibility;
+* independence from network connectivity.
+
+### Retrieving Data from the Database
+
+If no cached dataset is available, breeding bird observations are retrieved directly from the database:
+
+```r
+breedingBirdData <- retrieve_breedingBirds_routesAndCounts(
+  con             = con,
+  dataFolder      = point_count_dir,
+  overwrite_cache = FALSE,
+  save_outputs    = TRUE,
+  crs             = modelCrs
+)
+```
+
+This process retrieves survey routes, point locations, and bird counts and subsequently stores the processed results for future analyses.
+
+Caching ensures that future executions can proceed without repeatedly querying the database.
+
+
+## Loading the Expert Species List
+
+### Why Use Expert Species Selection?
+
+Not all bird species contribute equally to ecosystem assessment. Some species may occur only occasionally within an ecosystem, whereas others may primarily represent different habitat types.
+
+To ensure ecological relevance, species included in ecosystem indicators are selected by domain experts.
+
+Expert selection helps ensure that:
+
+* indicators represent the target ecosystem;
+* species are ecologically meaningful;
+* long-term trends reflect ecosystem condition rather than incidental occurrences.
+
+This approach is commonly used in biodiversity indicator development and ecological assessment frameworks [@gregory2005birds; @gregory2010wildbird].
+
+
+### Retrieving the Species List
+
+The ecosystem-specific species list is loaded using:
+
+```r
+expertSpeciesData <- retrieve_expertSpeciesList(
+  path_to_file = expert_data_path,
+  ecosystem = ecosystemType
+)
+```
+
+The selected species are extracted as:
+
+```r
+expertSpecies <-
+  expertSpeciesData$expertSpeciesList$Species
+```
+
+The number of retained species is reported to provide transparency regarding the composition of the indicator.
+
+---
+
+# Filtering Survey Data
+
+## Species Filtering
+
+Breeding bird observations are first restricted to species included in the expert-defined list:
+
+```r
+ecosystemBreedingBird <- breedingBirdData %>%
+  dplyr::filter(
+    Species %in% expertSpecies
+  )
+```
+
+This step ensures that only observations relevant to the ecosystem indicator are retained.
+
+For example:
+
+* forest indicators should be based on forest-associated species;
+* mountain indicators should be based on mountain-associated species.
+
+Restricting analyses to relevant species reduces ecological noise and improves interpretability.
+
+---
+
+## Temporal Filtering
+
+Occupancy models are then restricted to the selected modelling period:
+
+```r
+ecosystemBreedingBird <- ecosystemBreedingBird %>%
+  dplyr::filter(
+    Year >= modelYear[1],
+    Year <= modelYear[2]
+  )
+```
+
+Temporal filtering is important because:
+
+* monitoring protocols may change over time;
+* environmental covariates may only be available for specific periods;
+* indicator assessments often target predefined reporting intervals.
+
+Restricting analyses to a clearly defined period ensures consistency between observations, covariates, and management objectives.
+
+---
+
+# Quality Control
+
+After filtering, summary statistics are reported:
+
+```r
+nrow(ecosystemBreedingBird)
+```
+
+and
+
+```r
+dplyr::n_distinct(
+  ecosystemBreedingBird$Species
+)
+```
+
+These diagnostics provide a simple validation that the filtering process behaved as expected.
+
+In particular, they allow users to verify:
+
+* the number of observations retained;
+* the number of species contributing to the analysis;
+* consistency with previous analyses.
+
+---
+
+# Output
+
+The workflow produces a single modelling-ready dataset:
+
+## `ecosystemBreedingBird`
+
+A filtered breeding bird dataset containing:
+
+* survey observations;
+* survey locations;
+* species identities;
+* survey years;
+* only species selected for the chosen ecosystem;
+* only records within the specified modelling period.
+
+This dataset forms the biological input for subsequent stages of the occupancy modelling workflow, including covariate extraction, model fitting, and prediction.
+
+---
+
+# Summary
+
+Preparing biological observations is a critical first step in occupancy modelling. By combining validated monitoring data with expert-defined species selection and temporal filtering, the workflow ensures that occupancy analyses are based on observations that are ecologically relevant, temporally consistent, and reproducible.
+
+The resulting dataset represents the target species assemblage within the ecosystem and time period of interest, providing a robust foundation for estimating occupancy patterns and ecosystem indicators.
+
+
+
