@@ -1,0 +1,258 @@
+---
+title: "Generating Prediction Regions and Prediction Points"
+author: "Kwaku Peprah Adjei"
+date: "2026-06-21"
+bibliography: references.bib
+crossref:
+  fig-title: Figure
+  tbl-title: Table
+  eq-title: Equation
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    theme: cosmo
+  docx:
+    toc: true
+    number-sections: true
+execute:
+  echo: TRUE
+  warning: false
+  message: false
+---
+
+# Introduction
+
+Spatial occupancy models are generally fitted using observations collected at a finite number of survey locations, but their primary purpose is often to estimate species occupancy across broader landscapes. Achieving this requires defining the spatial domain over which predictions will be made and selecting representative prediction locations. The choice of prediction domain is fundamental because it determines the population of sites over which occupancy indicators are summarized [@mackenzie2006occupancy].
+
+This vignette describes the workflow used to construct ecosystem-specific prediction regions and generate prediction points for occupancy modelling. The procedure ensures that predictions are restricted to ecologically relevant areas and that spatial sampling is reproducible and consistent across analyses.
+
+The workflow consists of four stages:
+
+1. Verifying the availability of required geospatial datasets.
+2. Obtaining administrative boundaries for Norway.
+3. Defining ecosystem-specific prediction regions.
+4. Generating prediction points for model prediction.
+
+The resulting locations are subsequently used to extract environmental covariates and estimate occupancy throughout the landscape.
+
+
+# Background
+
+Species distribution and occupancy models produce predictions only at locations where explanatory variables are available [@elith2009sdm]. Consequently, defining the prediction domain is an essential component of model-based inference.
+
+Predictions are restricted to habitats relevant to the ecosystem under consideration. For example, forest bird indicators should only be estimated within forest habitats, whereas mountain bird indicators should be evaluated exclusively within mountain ecosystems. Restricting the prediction domain in this way reduces extrapolation into unsuitable habitats and ensures that ecosystem indicators correspond to the environments occupied by the focal species assemblage [@franklin2010mapping].
+
+
+# Verifying Geospatial Data Availability
+
+Several geospatial datasets required for prediction are distributed independently of this package. These include land-cover maps and mountain-region polygons.
+
+**Users should verify that these datasets are available before proceeding. NINA users typically access these files through the R: drive, whereas external users should obtain the datasets according to the project documentation and specify their locations in `set_paths.R`.** 
+
+**It is okay to use the NINA paths for the modelling. But it will be great if we can add where external users can identify the files.**
+
+# Obtaining Administrative Boundaries
+
+Administrative boundaries are required for clipping prediction regions and for summarizing occupancy estimates at county and national scales.
+
+Boundaries are downloaded from the GADM database [@hijmans2025geodata; @gadm2025] and cached locally to avoid repeated downloads.
+
+```r
+norway_shape_files <- get_norway_boundaries(
+  out_dir = file.path(
+    dataFolder,
+    "processedData",
+    "norway_boundaries"
+  ),
+  temp_dir = TEMPDIR,
+  source = "GADM",
+  overwrite = FALSE
+)
+```
+
+The boundaries are transformed into the coordinate reference system used by the occupancy model:
+
+```r
+norway_boundary <- norway_shape_files$national_boundary %>%
+  sf::st_transform(modelCrs)
+
+norway_county_boundary <- norway_shape_files$county_boundaries %>%
+  sf::st_transform(modelCrs)
+```
+
+Using a common coordinate reference system is essential for maintaining geometric consistency among all spatial layers [@pebesma2023sdsr].
+
+
+# Defining Prediction Regions
+
+Prediction regions represent the ecosystem over which occupancy probabilities will be estimated. Different ecosystems require different definitions because they rely on distinct habitat classifications and ecological boundaries.
+
+Two ecosystem types are currently supported:
+
+* Forest ecosystems;
+* Mountain ecosystems.
+
+Future versions will explore different ecosystem types.
+
+##  Forest Prediction Regions
+
+### Ecological Rationale
+
+Forest bird assemblages are associated with forest habitats. Consequently, predictions should be restricted to areas classified as forest.
+
+Forest areas are identified using the CORINE Land Cover database [@buttner2014corine], which provides harmonized land-cover classifications across Europe. Three classes are considered representative of forest ecosystems:
+
+| CORINE code | Description         |
+| ----------- | ------------------- |
+| 311         | Broad-leaved forest |
+| 312         | Coniferous forest   |
+| 313         | Mixed forest        |
+
+Restricting predictions to these classes ensures that occupancy indicators represent forest habitats rather than the entire terrestrial landscape.
+
+
+## Constructing the Forest Prediction Region
+
+A raster representation of land-cover classes is first obtained:
+
+```r
+forest_raster <-
+  get_landcover_labels(
+    ecosystemBreedingBird,
+    modelCrs = modelCrs,
+    cov_folder = file.path(
+      dataFolder,
+      "Covariates"
+    ),
+    output = "raster"
+  )
+```
+
+Prediction points are subsequently sampled from cells belonging to the three forest classes:
+
+```r
+predictionPoints <-
+  forest_raster %>%
+  sample_prediction_points_from_raster(
+    selected_codes = c(311,312,313),
+    n_points = 100000,
+    output_file = file.path(
+      dataFolder,
+      "processedData",
+      "prediction_regions",
+      "forest_region.parquet"
+    ),
+    seed = 123,
+    sample_method = "regular"
+  )
+```
+
+### Why Use Regular Sampling?
+
+Prediction locations are generated using a regular sampling design rather than simple random sampling.
+
+Regular sampling provides:
+
+* more homogeneous spatial coverage;
+* reduced clustering of prediction points;
+* improved representation of environmental gradients;
+* lower variance in spatial summaries;
+* increased reproducibility.
+
+Uniform spatial sampling is frequently used in large-scale biodiversity monitoring because it avoids overrepresentation of densely sampled areas and produces more stable estimates of spatial indicators (Legendre and Legendre 2012).
+
+A total of $100000$ prediction locations are generated to provide dense coverage across Norway's forest ecosystems.
+
+
+## Mountain Prediction Regions
+
+### Ecological Rationale
+
+Mountain bird communities occupy environments fundamentally different from forest ecosystems. Consequently, prediction regions are defined using the [Norwegian mountain layer](https://kartkatalog.miljodirektoratet.no/Dataset/Details/3075) rather than land-cover classifications. Mountain areas are delineated using the `fjell_grid50` layer, which represents Norwegian mountain ecosystems.
+
+### Constructing the Mountain Prediction Region
+
+The mountain polygons are loaded and clipped to Norway:
+
+```r
+prediction_region <- get_mountain_layer(
+  input_file = input_file,
+  layer = "fjell_grid50",
+  norway_boundary = norway_boundary,
+  modelCrs = modelCrs,
+  output_file = file.path(
+    dataFolder,
+    "processedData",
+    "prediction_regions",
+    "mountain.parquet"
+  )
+)
+```
+
+Prediction locations are then generated using regular spatial sampling:
+
+```r
+predictionPoints <-
+  prediction_region %>%
+  sf::st_sample(
+    size = 100000,
+    type = "regular"
+  ) %>%
+  sf::st_as_sf()
+```
+
+The resulting point set provides approximately uniform representation of mountain habitats across Norway.
+
+
+### Why Generate Prediction Points?
+
+Occupancy models estimate occurrence probabilities at discrete locations. Consequently, prediction requires a set of sites where environmental covariates can be evaluated [@mackenzie2006occupancy].
+
+Prediction points serve several purposes:
+
+1. They provide locations where environmental predictors are extracted.
+2. They enable landscape-wide occupancy prediction.
+3. They form the basis for ecosystem-level occupancy indicators.
+4. They facilitate aggregation to counties and national scales.
+
+In effect, prediction points represent the statistical population over which occupancy summaries are computed.
+
+
+
+# Reproducibility
+
+Prediction regions and prediction points are cached after creation and reused in subsequent analyses.
+
+A fixed random seed
+
+```r
+seed = 123
+```
+ensures reproducibility and enables identical prediction locations to be regenerated by different users.
+
+
+# Outputs
+
+The workflow produces:
+
+### `norway_boundary`
+
+National boundary used for clipping and national summaries.
+
+### `norway_county_boundary`
+
+County boundaries used for regional summaries.
+
+### `predictionPoints`
+
+A spatial point object containing 100,000 prediction locations representing the ecosystem under study.
+
+These locations define the spatial support over which occupancy probabilities and ecosystem indicators are estimated.
+
+
+
+# Summary
+
+Prediction regions define the ecological domain over which occupancy inference is made. Restricting predictions to ecosystem-specific habitats reduces extrapolation into unsuitable environments and ensures that occupancy indicators represent the environments relevant to the species assemblage. The use of a dense and regular spatial sample provides reproducible and statistically robust estimates suitable for landscape-scale biodiversity assessment.

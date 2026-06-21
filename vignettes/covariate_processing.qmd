@@ -1,0 +1,244 @@
+---
+title: "Preparing Environmental Covariates for Occupancy Modelling"
+author: "Kwaku Peprah Adjei"
+date: "2026-06-21"
+bibliography: references.bib
+crossref:
+  fig-title: Figure
+  tbl-title: Table
+  eq-title: Equation
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    theme: cosmo
+  docx:
+    toc: true
+    number-sections: true
+execute:
+  echo: TRUE
+  warning: false
+  message: false
+---
+
+## Introduction
+
+Species occupancy models relate the occurrence or detectability of species to environmental conditions. Consequently, all environmental predictors used during model fitting must be available in a consistent spatial framework [REF]. Differences in coordinate reference systems, spatial resolutions, extents, or grid origins among raster layers can introduce substantial errors and biases into model estimation and prediction[REF].
+
+This vignette describes the workflow used to prepare environmental covariates for occupancy modelling. The procedure ensures that all predictor variables are represented on a common spatial grid and that identical covariates are used both for fitting the model to survey observations and for generating predictions across the landscape.
+
+The workflow consists of five main stages:
+
+1. Defining the environmental covariates required by the model.
+2. Constructing a common raster template.
+3. Building a harmonized covariate raster stack.
+4. Extracting covariates at bird survey locations.
+5. Extracting covariates at prediction locations.
+
+Throughout the workflow, reproducibility is maintained by storing intermediate products and reusing existing files whenever possible.
+
+
+## Defining Environmental Covariates
+
+Occupancy models often contain separate sets of predictors for the ecological process (occupancy) and the observation process (detection). Detection covariates describe factors affecting the probability of observing a species given its presence, whereas occupancy covariates describe factors influencing the underlying probability of occurrence [REF].
+
+Before any processing begins, the lists of detection and occupancy covariates must be defined in the master script.
+
+```r
+required_objects <- c("det_covs", "occ_covs")
+```
+
+Execution is halted if these objects are absent. This prevents the accidental construction of incomplete datasets and ensures that all subsequent analyses use the intended model specification.
+
+The two sets of covariates are then combined into a unique list:
+
+```r
+all_covariates <- unique(c(det_covs, occ_covs))
+```
+
+This combined list represents all environmental variables required by the model.
+
+**We need to provide a table of the ecosytem type, the covariates used for the occurrence and occupancy as well their sources. Katherine will work on this.**
+
+## Creating a Common Spatial Template
+
+Environmental data are frequently obtained from different sources and often differ in spatial resolution, extent, and coordinate reference system. Directly combining such datasets can produce misaligned pixels and inconsistent covariate values.
+
+To avoid these problems, a template raster is constructed over the study region. In this example, the template covers Norway and uses a spatial resolution of 1 km.
+
+```r
+baseRaster <- create_template_raster(
+  study_region = norway_boundary,
+  resolution = 1000,
+  crs = modelCrs,
+  output_file = file.path(
+    dataFolder,
+    "processedData",
+    "prediction_grids",
+    "base_raster.tif"
+  )
+)
+```
+
+The template defines four important characteristics shared by all covariate layers:
+
+* coordinate reference system;
+* spatial extent;
+* grid origin;
+* cell size.
+
+By imposing a common geometry, every environmental variable corresponds to identical spatial locations. This is essential because occupancy models assume that predictor values originate from the same spatial support.
+
+## Constructing the Covariate Raster Stack
+
+Once the template has been created, all environmental variables are assembled into a single raster stack.
+
+```r
+cov_stack <- put_covariates_together(
+  x = ecosystemBreedingBird,
+  modelCrs = modelCrs,
+  all_covariates = all_covariates,
+  template = baseRaster,
+  output_file = file.path(
+    dataFolder,
+    "processedData",
+    "covariate_stack",
+    "covariate_stack.tif"
+  ),
+  cov_folder = cov_folder,
+  data_folder = dataFolder
+)
+```
+
+During this process, each covariate undergoes several transformations:
+
+### Coordinate System Harmonization
+
+Raster layers originating from different coordinate systems are projected into the model coordinate reference system. This guarantees spatial consistency among all predictors.
+
+### Spatial Resampling
+
+Covariates are resampled onto the common 1 km template. Continuous variables, such as elevation, are interpolated using bilinear resampling, whereas categorical variables, such as land-cover classes, are resampled using nearest-neighbour interpolation to preserve class identities.
+
+### Standardization
+
+Continuous predictors may optionally be standardized to zero mean and unit variance:
+$$
+x_{scaled} = \frac{x-\bar{x}}{s}
+$$
+
+where $\bar{x}$ is the mean and $s$ is the standard deviation.
+
+Standardization improves numerical stability and facilitates interpretation of regression coefficients, particularly when variables are measured on different scales.
+
+### Stacking
+
+The aligned raster layers are combined into a single multi-layer object. Storing covariates in one stack guarantees that extraction and prediction are performed consistently.
+
+**This stacking may change depending on how Katherine works on this. Changes are to be expected.**
+
+## Extracting Covariates 
+
+### Bird Survey Locations
+
+Occupancy models require environmental conditions associated with each survey site. These values are obtained by overlaying survey coordinates with the covariate stack.
+
+```r
+breeding_bird_data_for_modelling <-
+  extract_model_covariates(
+    x = ecosystemBreedingBird %>%
+      dplyr::select(-DEM),
+    modelCrs = modelCrs,
+    all_covariates = all_covariates,
+    lon_col = "Longitude",
+    lat_col = "Latitude",
+    input_crs = 4326,
+    covariate_stack = cov_stack,
+    return = "data.frame"
+  )
+```
+
+The extraction procedure involves several steps:
+
+1. Survey coordinates are converted into spatial objects.
+2. Coordinates are transformed into the model coordinate reference system.
+3. Raster values are extracted from each covariate layer.
+4. Extracted values are merged with the original survey records.
+
+Additional route and point identifiers are generated:
+
+```r
+dplyr::mutate(
+  route_id = sub("_.*", "", Route_point_id),
+  point_id = sub(".*_", "", Route_point_id)
+)
+```
+
+The resulting dataset contains both biological observations and their associated environmental predictors and forms the basis for model fitting.
+
+### Prediction Locations
+
+To predict occupancy across the landscape, environmental conditions must also be available at unsampled locations.
+
+Prediction points are therefore processed using exactly the same extraction procedure:
+
+```r
+predictionPoints_for_modelling <-
+  extract_model_covariates(
+    x = predictionPoints %>%
+      dplyr::select(-any_of(all_covariates)),
+    modelCrs = modelCrs,
+    all_covariates = all_covariates,
+    lon_col = "Longitude",
+    lat_col = "Latitude",
+    input_crs = 4326,
+    covariate_stack = cov_stack,
+    return = "data.frame"
+  )
+```
+
+Using identical covariate layers for both model fitting and prediction is essential. Any mismatch between the two datasets can lead to biased predictions or extrapolation beyond the range of observed environmental conditions.
+
+Factor levels are also synchronized:
+
+```r
+landCover = factor(
+  landCover,
+  levels = levels(
+    breeding_bird_data_for_modelling$landCover
+  )
+)
+```
+
+Ensuring identical factor levels prevents inconsistencies during model prediction.
+
+
+## Final Outputs
+
+The workflow produces two modelling-ready datasets:
+
+### `breeding_bird_data_for_modelling`
+
+Contains:
+
+* bird survey observations;
+* coordinates;
+* extracted environmental covariates;
+* route and point identifiers.
+
+This dataset is used for model fitting.
+
+### `predictionPoints_for_modelling`
+
+Contains:
+
+* spatial prediction locations;
+* environmental covariates corresponding to each location.
+
+This dataset is used to generate spatial predictions of occupancy probability.
+
+
+## Summary
+
+Environmental covariate preparation is a critical stage of occupancy modelling. By projecting, resampling, and aligning all predictors onto a common grid, the workflow ensures that environmental information is spatially consistent throughout the modelling process. Extracting identical covariates at both survey and prediction locations guarantees compatibility between model estimation and landscape-scale prediction, thereby improving reproducibility and reducing the risk of spatial artefacts or biased inference.
