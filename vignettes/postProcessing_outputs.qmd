@@ -1,0 +1,381 @@
+---
+title: "Working with Model Outputs"
+author: "Kwaku Peprah Adjei"
+date: "2026-06-22"
+bibliography: references.bib
+crossref:
+  fig-title: Figure
+  tbl-title: Table
+  eq-title: Equation
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    theme: cosmo
+  docx:
+    toc: true
+    number-sections: true
+execute:
+  echo: TRUE
+  warning: false
+  message: false
+---
+
+
+# Overview
+
+This vignette demonstrates how to:
+
+1. Extract model outputs from one or more fitted model directories.
+2. Combine outputs across model configurations.
+3. Save extracted results for reproducibility.
+4. Generate standardized diagnostic and summary plots.
+5. Export publication-ready figures.
+
+The workflow is designed for both single-species and multi-species occupancy models, with support for spatial and non-spatial model variants.
+
+# Model Directory Structure
+
+Model outputs are assumed to be stored in a directory structure similar to:
+
+```text
+modelFit/
+└── version_01/
+    └── Forest/
+        ├── single_species_model/
+        │   └── non_spatialModel/
+        ├── single_species_model/
+        │   └── spatialModel/
+        ├── multiple_species_model/
+        │   └── non_spatialModel/
+        └── multiple_species_model/
+            └── spatialModel/
+```
+
+Each directory contains one or more `.rds` files produced during model fitting.
+
+# Extracting outputs
+
+We provide an option to present figures and summaries from one fitted model or comparison across several fitted models.
+
+## Extracting Outputs from a Single Model
+
+To extract outputs from a single model directory:
+
+```r
+outputs <- extract_model_outputs(path_to_results)
+```
+
+The returned object contains:
+
+```r
+print(outputs)
+```
+
+Example:
+
+```text
+<Model Outputs Object>
+----------------------
+
+Files processed: 25
+Unique paths: 1
+Single species: 25
+Multi species: 0
+Spatial models: 0
+
+Components:
+ - bayes_P
+ - beta_summary
+ - alpha_summary
+ - occ_effects
+ - det_effects
+```
+
+---
+
+## Comparing Multiple Model Configurations
+
+To compare outputs across multiple model configurations, first build a table of available model paths.
+
+```r
+paths_df <- build_model_paths(
+  output_root = output_root,
+  version_label = version_label,
+  ecosystemType = ecosystemType,
+  existing_only = TRUE,
+  include_single_species = c(TRUE, FALSE),
+  include_spatial_model = c(TRUE, FALSE)
+)
+```
+
+Example:
+
+```r
+paths_df
+```
+
+| fit_single_species | fit_spatial_model | path_to_results |
+| ------------------ | ----------------- | --------------- |
+| TRUE               | FALSE             | ...             |
+| FALSE              | FALSE             | ...             |
+
+Extract all outputs:
+
+```r
+outputs <- extract_model_outputs(
+  paths_df$path_to_results
+)
+```
+
+The extraction process automatically stores metadata describing:
+
+* source file
+* source path
+* model type
+* spatial configuration
+
+for every row of every extracted component.
+
+---
+
+## Saving Results
+
+Extracted outputs can be saved for later use:
+
+```r
+save(
+  outputs,
+  file = file.path(
+    path_to_postProcessing,
+    "model_outputs.RData"
+  )
+)
+```
+
+Reloading:
+
+```r
+load(
+  file.path(
+    path_to_postProcessing,
+    "model_outputs.RData"
+  )
+)
+```
+
+---
+
+# Plotting Model Outputs
+
+## Occupancy and Detection Effects
+
+```r
+p_occ_det <- plot(
+  outputs,
+  type = "error",
+  components = c(
+    "det_effects",
+    "occ_effects"
+  )
+)
+```
+
+```r
+print(p_occ_det)
+```
+
+This plot displays posterior means and 95% credible intervals for occupancy and detection effects.
+
+---
+
+## Posterior Predictive Checks
+
+```r
+p_bayes <- plot(
+  outputs,
+  type = "error",
+  components = "bayes_P"
+)
+```
+
+```r
+print(p_bayes)
+```
+
+Posterior predictive checks provide a quick assessment of model fit.
+
+Bayesian p-values near 0.5 generally indicate adequate fit.
+
+---
+
+## Community-Level Summaries
+
+```r
+p_comm <- plot(
+  outputs,
+  type = "error",
+  components = c(
+    "beta_summary",
+    "alpha_summary"
+  )
+) +
+  labs(
+    title = "Community-level parameter summaries"
+  )
+```
+
+```r
+print(p_comm)
+```
+
+These summaries show community-level occupancy and detection parameters for multi-species models.
+
+---
+
+## Applying a Consistent Theme
+
+A reusable plotting theme improves readability and consistency across reports.
+
+```r
+theme_model <- function() {
+
+  ggplot2::theme_bw(base_size = 12) +
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(
+        face = "bold",
+        hjust = 0.5
+      ),
+      strip.text = ggplot2::element_text(
+        face = "bold"
+      ),
+      legend.title = ggplot2::element_text(
+        face = "bold"
+      ),
+      panel.grid.minor =
+        ggplot2::element_blank()
+    )
+}
+```
+
+Apply to any plot:
+
+```r
+p_occ_det + theme_model()
+```
+
+---
+
+## Exporting Figures
+
+A helper function can save plots as both PNG and PDF.
+
+```r
+save_plot <- function(
+  plot_obj,
+  filename,
+  width = 14,
+  height = 10
+) {
+
+  ggplot2::ggsave(
+    file.path(
+      path_to_postProcessing,
+      paste0(filename, ".png")
+    ),
+    plot = plot_obj,
+    width = width,
+    height = height,
+    dpi = 300
+  )
+
+  ggplot2::ggsave(
+    file.path(
+      path_to_postProcessing,
+      paste0(filename, ".pdf")
+    ),
+    plot = plot_obj,
+    width = width,
+    height = height
+  )
+}
+```
+
+Example:
+
+```r
+save_plot(
+  p_occ_det,
+  "occupancy_detection_effects"
+)
+
+save_plot(
+  p_bayes,
+  "posterior_predictive_checks"
+)
+
+save_plot(
+  p_comm,
+  "community_parameter_summaries"
+)
+```
+
+---
+
+# Recommended Workflow
+
+```r
+outputs <- extract_model_outputs(
+  paths_df$path_to_results
+)
+
+save(
+  outputs,
+  file = file.path(
+    path_to_postProcessing,
+    "model_outputs.RData"
+  )
+)
+
+p_occ_det <- plot(
+  outputs,
+  type = "error",
+  components = c(
+    "det_effects",
+    "occ_effects"
+  )
+)
+
+p_bayes <- plot(
+  outputs,
+  type = "error",
+  components = "bayes_P"
+)
+
+p_comm <- plot(
+  outputs,
+  type = "error",
+  components = c(
+    "beta_summary",
+    "alpha_summary"
+  )
+)
+
+save_plot(
+  p_occ_det,
+  "occupancy_detection_effects"
+)
+
+save_plot(
+  p_bayes,
+  "posterior_predictive_checks"
+)
+
+save_plot(
+  p_comm,
+  "community_parameter_summaries"
+)
+```
+
+This workflow provides a reproducible framework for extracting, summarizing, comparing, and exporting occupancy model results across multiple model configurations.
