@@ -126,9 +126,10 @@ version_label <- paste0("version_0", version)
 fitModel       <- FALSE
 runPredictions <- FALSE
 runIndicators  <- FALSE
+runPostprocessing  <- TRUE
 
 # Model type switches.
-fit_single_species <- TRUE  # TRUE: PGOcc / spPGOcc per species
+fit_single_species <- FALSE  # TRUE: PGOcc / spPGOcc per species
 fit_spatial_model  <- FALSE # TRUE: spatial NNGP model
 
 # Coordinate reference system used throughout the modelling workflow.
@@ -219,6 +220,26 @@ path_to_indicators <- file.path(
   spatial_dir
 )
 
+# if runPostprocessing, specify whether you are interested in comparing all outputs from
+# the various models within the same ecosystem or that you are just interested in postprocessing
+# for the current configurations
+compareMultipleOutputs <- TRUE
+
+if(!compareMultipleOutputs){
+path_to_postProcessing <- file.path(  output_root,
+                                      "postProcessing_outputs",
+                                      version_label,
+                                      ecosystemType,
+                                      species_dir,
+                                      spatial_dir)
+} else {
+  path_to_postProcessing <- file.path(  output_root,
+                                        "postProcessing_outputs",
+                                        version_label,
+                                        ecosystemType,
+                                        "multipleOutputs")
+}
+
 path_for_logs <- file.path(
   output_root,
   "logs",
@@ -230,6 +251,7 @@ dir.create(path_to_results, recursive = TRUE, showWarnings = FALSE)
 dir.create(path_to_predictions, recursive = TRUE, showWarnings = FALSE)
 dir.create(path_to_indicators, recursive = TRUE, showWarnings = FALSE)
 dir.create(path_for_logs, recursive = TRUE, showWarnings = FALSE)
+dir.create(path_to_postProcessing, recursive = TRUE, showWarnings = FALSE)
 
 logfile <- file.path(
   path_for_logs,
@@ -336,6 +358,15 @@ tryCatch(
       ))
     }
 
+    if(runPostprocessing){
+      source(here::here(
+        "scripts",
+        "02_pipeline",
+        "03_postProcessing",
+        "01_process_one_path_for_results.R"
+      ))
+    }
+
     cat("\nFinished:", as.character(Sys.time()), "\n")
 
   },
@@ -354,3 +385,5 @@ tryCatch(
     message("Log written to: ", logfile)
   }
 )
+
+

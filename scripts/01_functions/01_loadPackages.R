@@ -43,7 +43,9 @@ necessaryPackages <- c(
   "geodata",
   "terra",
   "sfarrow",
-  "tidyterra"
+  "tidyterra",
+  "purrr",
+  "ggplot2"
 )
 
 ###############################################################################
