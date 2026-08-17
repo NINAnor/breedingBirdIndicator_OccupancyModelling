@@ -84,8 +84,8 @@ res_forest <- fit_ecosystem_spoccupancy(
   year_col    = "Year",
   count_col   = "TotalCount",
 
-  lon_col = "longitude",
-  lat_col = "latitude",
+  lon_col = "long",
+  lat_col = "lat",
 
   route_id_col = NULL,
   point_id_col = NULL,

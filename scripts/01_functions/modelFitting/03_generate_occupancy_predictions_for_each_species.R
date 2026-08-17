@@ -454,17 +454,34 @@ generate_occupancy_predictions_for_each_species <- function(
   if(use_route_random_effect) prediction_points <- prediction_points %>%
     dplyr::mutate(route_id = 1)
 
+  prediction_points <- prediction_points %>%
+    dplyr::mutate(
+      mean_temperature = rowMeans(
+        dplyr::across(
+          dplyr::matches("^mean_temperature_[0-9]{4}$")
+        ),
+        na.rm = TRUE
+      ),
+
+      mean_precipitation = rowMeans(
+        dplyr::across(
+          dplyr::matches("^mean_precipitation_[0-9]{4}$")
+        ),
+        na.rm = TRUE
+      )
+    )
+
   X_0_full <- model.matrix(occ_formula, data = prediction_points)
 
   # Coordinates as a plain numeric matrix — used by spatial predict methods.
   # Column names must be present but the spatial predict generics accept any
   # two-column matrix; we name them to match the convention used during fitting.
   coords_0_mat <- as.matrix(
-    prediction_points[, c("longitude", "latitude")]
+    prediction_points[, c("long", "lat")]
   )
 
   # sf / terra coordinate data frame used by summarize_occupancy_predictions()
-  coords_0_df <- prediction_points[, c("longitude", "latitude")]
+  coords_0_df <- prediction_points[, c("long", "lat")]
 
   all_results <- list()
 

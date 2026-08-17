@@ -92,8 +92,8 @@ extract_model_covariates <- function(
 
   out <- points_sf |>
     dplyr::mutate(
-      longitude = coords[, 1],
-      latitude = coords[, 2]
+      long = coords[, 1],
+      lat = coords[, 2]
     ) |>
     dplyr::bind_cols(extracted)
 

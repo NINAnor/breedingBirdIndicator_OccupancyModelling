@@ -123,9 +123,9 @@ version <- 1
 version_label <- paste0("version_0", version)
 
 # Pipeline switches.
-fitModel       <- FALSE
-runPredictions <- FALSE
-runIndicators  <- FALSE
+fitModel       <- TRUE
+runPredictions <- TRUE
+runIndicators  <- TRUE
 runPostprocessing  <- TRUE
 
 # Model type switches.
@@ -151,6 +151,7 @@ indicator_col = "mean"
 # How many groups should be used in grouping the species
 maxSpeciesInGrps <- 24
 
+modelChecks <- FALSE
 
 ################################################################################
 # 5. Model covariates
@@ -179,10 +180,10 @@ occ_covs <- covariateSelection$covariate[covariateSelection$forest_occ == TRUE]
 # 6. MCMC settings
 ################################################################################
 
-n.batch       <- 20
+n.batch       <- 100
 batch.length  <- 500
-n.burn        <- 5000
-n.thin        <- 50 # use 10 for single species.
+n.burn        <- 20000
+n.thin        <- 30 # use 10 for single species.
 n.chains      <- 3
 
 n.neighbors   <- 10
@@ -235,7 +236,7 @@ path_to_indicators <- file.path(
 # if runPostprocessing, specify whether you are interested in comparing all outputs from
 # the various models within the same ecosystem or that you are just interested in postprocessing
 # for the current configurations
-compareMultipleOutputs <- TRUE
+compareMultipleOutputs <- FALSE
 
 if(!compareMultipleOutputs){
 path_to_postProcessing <- file.path(  output_root,

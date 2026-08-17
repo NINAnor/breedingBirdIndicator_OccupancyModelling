@@ -36,7 +36,9 @@ put_covariates_together <- function(
     cov_folder = file.path(path_finder("dataFolder"), "Covariates"),
     data_folder = path_finder("dataFolder"),
     overwrite = FALSE,
-    scale_vars = TRUE
+    scale_vars = TRUE,
+    norway_boundary,
+    modelYear
 ) {
   required_pkgs <- c("sf", "terra", "dplyr", "tidyterra")
 
@@ -60,6 +62,8 @@ put_covariates_together <- function(
     stop("`all_covariates` must be a character vector.", call. = FALSE)
   }
 
+  years <- seq(modelYear[1], modelYear[2])
+
   output_file <- normalizePath(output_file, winslash = "/", mustWork = FALSE)
 
   if (file.exists(output_file) && !overwrite) {
@@ -73,26 +77,86 @@ put_covariates_together <- function(
       stopOnError = FALSE
     )
 
-    matched_cov_names <- all(all_covariates %in% names(cached_stack))
+    raster_names <- names(cached_stack)
 
-    if (same_as_template && matched_cov_names) {
-      message("Cached covariate stack matches template and requested covariates.")
-      return(cached_stack[[all_covariates]])
-    }
+    matched_cov_names <- vapply(
+      all_covariates,
+      function(cov_name) {
+        any(startsWith(raster_names, cov_name))
+      },
+      logical(1)
+    )
 
-    if (!same_as_template) {
-      message("Cached covariate stack does not match template.")
-    }
+    all_matched <- all(matched_cov_names)
 
-    if (!matched_cov_names) {
-      missing_covariates <- setdiff(all_covariates, names(cached_stack))
+    if (same_as_template && all_matched) {
+
       message(
-        "Cached covariate stack is missing: ",
-        paste(missing_covariates, collapse = ", ")
+        "Cached covariate stack matches template and all requested covariates."
+      )
+
+      matched_rasters <- unlist(
+        lapply(
+          all_covariates,
+          function(cov_name) {
+            raster_names[
+              startsWith(raster_names, cov_name)
+            ]
+          }
+        ),
+        use.names = FALSE
+      )
+
+      return(
+        cached_stack[[matched_rasters]]
       )
     }
 
-    message("Rebuilding covariate stack.")
+    if (!same_as_template) {
+      message(
+        "Cached covariate stack does not match template."
+      )
+    }
+
+    if (!all_matched) {
+
+      missing_covariates <- all_covariates[
+        !matched_cov_names
+      ]
+
+      message(
+        "Cached covariate stack is missing: ",
+        paste(
+          missing_covariates,
+          collapse = ", "
+        )
+      )
+    }
+
+    message(
+      "Rebuilding covariate stack."
+    )
+
+    # matched_cov_names <- all(all_covariates %in% names(cached_stack))
+    #
+    # if (same_as_template && matched_cov_names) {
+    #   message("Cached covariate stack matches template and requested covariates.")
+    #   return(cached_stack[[all_covariates]])
+    # }
+    #
+    # if (!same_as_template) {
+    #   message("Cached covariate stack does not match template.")
+    # }
+    #
+    # if (!matched_cov_names) {
+    #   missing_covariates <- setdiff(all_covariates, names(cached_stack))
+    #   message(
+    #     "Cached covariate stack is missing: ",
+    #     paste(missing_covariates, collapse = ", ")
+    #   )
+    # }
+    #
+    # message("Rebuilding covariate stack.")
   }
 
   covariate_stack <- NULL
@@ -275,8 +339,6 @@ put_covariates_together <- function(
       "sd"
     )
 
-    years <- seq(modelYear[1], modelYear[2])
-
     output_dir <- file.path(
       dataFolder,
       "processedData",
@@ -335,32 +397,39 @@ put_covariates_together <- function(
       "SR16_forest_F"
     )
 
-    output_dir <- file.path(
-      dataFolder,
-      "processedData",
-      "TreeSpp"
-    )
-
-    output_file <- file.path(
-      output_dir,
-      "TreeSpp.tif"
-    )
+    # output_dir <- file.path(
+    #   dataFolder,
+    #   "processedData",
+    #   "TreeSpp"
+    # )
+    #
+    # output_file <- file.path(
+    #   output_dir,
+    #   "TreeSpp.tif"
+    # )
 
     TreeSppRaster <- get_TreeSpp(
       input_file = file.path(
         sr16_dir,
         "dominantTreeSpecies.tif"
       ),
-      output_file = output_file,
+      output_file = file.path(
+        dataFolder,
+        "processedData",
+        "TreeSpp",
+        "TreeSpp.tif"
+      ),
       target_crs = paste0("EPSG:", modelCrs),
       overwrite = FALSE
-    )%>%
-      resample_to_baseRaster(
-        r = .,
+    ) |>
+      tidyterra::select(dominantTree)
+
+    TreeSppRaster <- resample_to_baseRaster(
+        r = TreeSppRaster,
         baseRaster = template,
         name = "dominantTree",
         scale_continuous = scale_vars,
-        max_unique = 10
+        max_unique = 3
       )
 
     covariate_stack <- if (is.null(covariate_stack)) {
@@ -368,9 +437,107 @@ put_covariates_together <- function(
     } else {
       c(covariate_stack, TreeSppRaster)
     }
+  }
 
+
+  ## =====================================
+  ## Mean temperature and precipitation
+  ## ====================================
+
+  if(any(c("mean_precipitation", "mean_temperature") %in% all_covariates)){
+    prec_temp <- lapply(
+      years,
+      function(yr) {
+
+        get_prec_temp(
+          nc_dir = paste0(geoSpatFolder,
+                          "/Meteorology/Norway_SeNorge2018_v22.09/Original/rr_tm"),
+          output_dir = file.path(
+            dataFolder,
+            "processedData",
+            "PrecTemp"
+          ),
+          year = yr,
+          nc_pattern = "seNorge2018_%d.nc",
+          tg_sub = "tg",
+          rr_sub = "rr",
+          breeding_season = 135:166,
+          raster_crs = "EPSG:25833",
+          overwrite = FALSE
+        )
+      }
+    )
+
+    if("mean_temperature" %in% all_covariates){
+      temp <- lapply(prec_temp, function(dat){
+        dat$temperature %>%
+          resample_to_baseRaster(
+            r = .,
+            baseRaster = template,
+            #name = "dominantTree",
+            scale_continuous = scale_vars,
+            max_unique = 10
+          )
+      })|>
+        rast()
+
+      covariate_stack <- if (is.null(covariate_stack)) {
+        temp
+      } else {
+        c(covariate_stack, temp )
+      }
+    }
+
+    if("mean_precipitation" %in% all_covariates){
+      prec <- lapply(prec_temp, function(dat){
+        dat$precipitation %>%
+          resample_to_baseRaster(
+            r = .,
+            baseRaster = template,
+            #name = "dominantTree",
+            scale_continuous = scale_vars,
+            max_unique = 10
+          )
+      })|>
+        rast()
+
+      covariate_stack <- if (is.null(covariate_stack)) {
+        prec
+      } else {
+        c(covariate_stack, prec )
+      }
+    }
 
   }
+
+  if("latitude" %in% all_covariates){
+    latitude_raster <- get_latitude(
+      boundary = norway_boundary,
+      model_crs = modelCrs,
+      template = template,
+      output_file = file.path(
+        dataFolder,
+        "processedData",
+        "Latitude",
+        "latitude.tif"
+      ),
+      overwrite = FALSE
+    ) %>%
+      resample_to_baseRaster(
+        r = .,
+        baseRaster = template,
+        #name = "dominantTree",
+        scale_continuous = scale_vars,
+        max_unique = 10
+      )
+
+    covariate_stack <- if (is.null(covariate_stack)) {
+      latitude_raster
+    } else {
+      c(covariate_stack, latitude_raster )
+    }
+  }
+
 
   if (is.null(covariate_stack)) {
     stop(

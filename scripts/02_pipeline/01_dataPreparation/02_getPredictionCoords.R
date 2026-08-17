@@ -52,6 +52,27 @@ norway_boundary <- norway_shape_files$national_boundary %>%
 norway_county_boundary <- norway_shape_files$county_boundaries %>%
   sf::st_transform(modelCrs)
 
+################################################################################
+# Create a common raster template
+################################################################################
+# Lets the load the protection regions # The file path is from NINA's R drive
+# R:\GeoSpatialData\ProtectedSites\Norway_ProtectedAreas\Original\Natur_Vern_norge_med_svalbard_25833.gdb
+# We load and crop to the boundary of Norway
+# All covariates are resampled onto a common 1 km grid to ensure that
+# resolution, extent, and coordinate reference system are identical.
+
+baseRaster <- create_template_raster(
+  study_region = norway_boundary,
+  resolution   = 1000,       # 1 km resolution
+  crs          = modelCrs,
+  output_file  = file.path(
+    dataFolder,
+    "processedData",
+    "prediction_grids",
+    "base_raster.tif"
+  ),
+  overwrite = TRUE
+)
 
 
 ################################################################################
@@ -73,19 +94,37 @@ if (ecosystemType == "Forest") {
   # A regular sample of 10,000 points is generated and saved for reuse.
   ##############################################################################
 
-  predictionPoints <- get_landcover_labels(
-    ecosystemBreedingBird,
-    modelCrs = modelCrs,
-    cov_folder = file.path(
+
+  legend <- readxl::read_excel(paste0(dataFolder,"/Covariates/Landcover_F_M/legend.xlsx"),
+                               sheet = "NO_binnedClasses")
+  classes <- legend$`lc_GLAD.tif value`[legend$`For Forest mask - predictions` == "T"]
+  classes <- classes[!is.na(classes)]
+
+  predictionPoints <- get_GLAD_landcover(
+    input_file = file.path(
       dataFolder,
-      "Covariates"
+      "Covariates",
+      "Landcover_F_M",
+      "lc2020nor_mergedClasses.tif"
     ),
-    output = "raster"
+    model_crs = modelCrs,
+    output_file = file.path(
+      dataFolder,
+      "processedData",
+      "GLAD_lc",
+      "LCglad.tif"
+    )
   ) %>%
+    resample_to_baseRaster(
+      r = .,
+      baseRaster = baseRaster,
+      name = "glad_landCover"
+    ) %>%
 
     sample_prediction_points_from_raster(
-      selected_codes = c(311, 312, 313),
-      n_points = 100000,
+      raster = .,
+      selected_codes = classes,
+      n_points = 50000,
       output_file = file.path(
         dataFolder,
         "processedData",
@@ -99,6 +138,36 @@ if (ecosystemType == "Forest") {
     ) %>%
 
     dplyr::select(geometry)
+
+  #
+  #
+  #
+  # get_landcover_labels(
+  #   ecosystemBreedingBird,
+  #   modelCrs = modelCrs,
+  #   cov_folder = file.path(
+  #     dataFolder,
+  #     "Covariates"
+  #   ),
+  #   output = "raster"
+  # ) %>%
+  #
+  #   sample_prediction_points_from_raster(
+  #     selected_codes = c(311, 312, 313),
+  #     n_points = 100000,
+  #     output_file = file.path(
+  #       dataFolder,
+  #       "processedData",
+  #       "prediction_regions",
+  #       "forest_region.parquet"
+  #     ),
+  #     metadata_file = NULL,
+  #     overwrite = FALSE,
+  #     seed = 123,
+  #     sample_method = "regular"
+  #   ) %>%
+  #
+  #   dplyr::select(geometry)
 
 
 } else if (ecosystemType == "Mountain") {
@@ -132,7 +201,7 @@ if (ecosystemType == "Forest") {
   ) %>%
 
     sf::st_sample(
-      size = 100000,
+      size = 50000,
       type = "regular"
     ) %>%
 

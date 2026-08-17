@@ -160,6 +160,7 @@ fit_ecosystem_spoccupancy <- function(
 
     use_route_random_effect = FALSE,
     fill_detection_vals = TRUE,
+    modelChecks = FALSE,
 
     covariates_to_scale = NULL,
     remove_routes_with_missing_coords = TRUE,
@@ -197,15 +198,88 @@ fit_ecosystem_spoccupancy <- function(
   # Basic checks
   # ---------------------------------------------------------------------------
 
+  # ----------------------------------------------------------
+  # Required columns
+  # ----------------------------------------------------------
+
   required_cols <- c(
-    site_id_col, species_col, year_col, count_col,
-    lon_col, lat_col, occ_covariates, det_covariates
+    site_id_col,
+    species_col,
+    year_col,
+    count_col,
+    lon_col,
+    lat_col
   )
 
-  missing_cols <- setdiff(required_cols, names(ecosystemBreedingBird))
+  # ----------------------------------------------------------
+  # Check exact-match columns
+  # ----------------------------------------------------------
+
+  missing_required_cols <- setdiff(
+    required_cols,
+    names(ecosystemBreedingBird)
+  )
+
+  # ----------------------------------------------------------
+  # Check occupancy covariates using starts-with matching
+  # ----------------------------------------------------------
+
+  missing_occ_covariates <- occ_covariates[
+    !vapply(
+      occ_covariates,
+      function(cov) {
+        any(
+          startsWith(
+            names(ecosystemBreedingBird),
+            cov
+          )
+        )
+      },
+      logical(1)
+    )
+  ]
+
+  # ----------------------------------------------------------
+  # Check detection covariates using starts-with matching
+  # ----------------------------------------------------------
+
+  missing_det_covariates <- det_covariates[
+    !vapply(
+      det_covariates,
+      function(cov) {
+        any(
+          startsWith(
+            names(ecosystemBreedingBird),
+            cov
+          )
+        )
+      },
+      logical(1)
+    )
+  ]
+
+  # ----------------------------------------------------------
+  # Combine missing columns/covariates
+  # ----------------------------------------------------------
+
+  missing_cols <- unique(
+    c(
+      missing_required_cols,
+      missing_occ_covariates,
+      missing_det_covariates
+    )
+  )
+
   if (length(missing_cols) > 0) {
-    stop("These columns are missing from ecosystemBreedingBird: ",
-         paste(missing_cols, collapse = ", "))
+
+    stop(
+      "These columns/covariates are missing from ecosystemBreedingBird: ",
+      paste(
+        missing_cols,
+        collapse = ", "
+      ),
+      call. = FALSE
+    )
   }
 
   if (is.null(covariates_to_scale)) {
@@ -497,18 +571,94 @@ fit_ecosystem_spoccupancy <- function(
 
   all_covariates <- unique(c(occ_covariates, det_covariates))
 
+  # ----------------------------------------------------------
+  # Identify all columns corresponding to requested covariates
+  # ----------------------------------------------------------
+
+  covariate_cols <- unique(
+    unlist(
+      lapply(
+        all_covariates,
+        function(cov) {
+          grep(
+            paste0("^", cov),
+            names(survey_dat),
+            value = TRUE
+          )
+        }
+      )
+    )
+  )
+
+  numeric_covariate_cols <- covariate_cols[
+    vapply(
+      survey_dat[covariate_cols],
+      is.numeric,
+      logical(1)
+    )
+  ]
+
+  categorical_covariate_cols <- covariate_cols[
+    vapply(
+      survey_dat[covariate_cols],
+      function(x) {
+        is.factor(x) || is.character(x)
+      },
+      logical(1)
+    )
+  ]
+
+  # point_info <- survey_dat %>%
+  #   dplyr::group_by(Route_point_id, route_id, point_id, Year) %>%
+  #   dplyr::summarise(
+  #     Lon = mean(Lon, na.rm = TRUE),
+  #     Lat = mean(Lat, na.rm = TRUE),
+  #     dplyr::across(dplyr::all_of(all_covariates) & where(is.numeric),
+  #                   ~ mean(.x, na.rm = TRUE)),
+  #     dplyr::across(dplyr::all_of(all_covariates) &
+  #                     where(~ is.factor(.x) || is.character(.x)), mode_value),
+  #     .groups = "drop"
+  #   ) %>%
+  #   dplyr::arrange(match(Route_point_id, all_points), Year)
+
   point_info <- survey_dat %>%
-    dplyr::group_by(Route_point_id, route_id, point_id, Year) %>%
+    dplyr::group_by(
+      Route_point_id,
+      route_id,
+      point_id,
+      Year
+    ) %>%
     dplyr::summarise(
-      Lon = mean(Lon, na.rm = TRUE),
-      Lat = mean(Lat, na.rm = TRUE),
-      dplyr::across(dplyr::all_of(all_covariates) & where(is.numeric),
-                    ~ mean(.x, na.rm = TRUE)),
-      dplyr::across(dplyr::all_of(all_covariates) &
-                      where(~ is.factor(.x) || is.character(.x)), mode_value),
+
+      Lon = mean(
+        Lon,
+        na.rm = TRUE
+      ),
+
+      Lat = mean(
+        Lat,
+        na.rm = TRUE
+      ),
+
+      # Numeric covariates
+      dplyr::across(
+        dplyr::all_of(numeric_covariate_cols),
+        ~ mean(.x, na.rm = TRUE)
+      ),
+
+      # Categorical covariates
+      dplyr::across(
+        dplyr::all_of(categorical_covariate_cols),
+        mode_value
+      ),
+
       .groups = "drop"
     ) %>%
-    dplyr::arrange(match(Route_point_id, all_points), Year)
+    dplyr::arrange(
+      match(Route_point_id, all_points),
+      Year
+    )
+
 
   point_info_raw <- point_info
 
@@ -521,18 +671,130 @@ fit_ecosystem_spoccupancy <- function(
   # ---------------------------------------------------------------------------
   # Global occupancy covariates
   # ---------------------------------------------------------------------------
+  # ----------------------------------------------------------
+  # Find all columns corresponding to each occupancy covariate
+  # ----------------------------------------------------------
+
+  covariate_matches <- lapply(
+    occ_covariates,
+    function(cov) {
+
+      grep(
+        paste0("^", cov, "($|_)"),
+        names(point_info),
+        value = TRUE
+      )
+    }
+  )
+
+  # IMPORTANT:
+  # The list was created from occ_covariates, so it must be
+  # named with occ_covariates, not all_covariates.
+  names(covariate_matches) <- occ_covariates
+
+  # ----------------------------------------------------------
+  # Remove covariates with no matching columns
+  # ----------------------------------------------------------
+
+  covariate_matches <- covariate_matches[
+    lengths(covariate_matches) > 0
+  ]
+
+
+  # ----------------------------------------------------------
+  # Create occupancy covariates
+  # ----------------------------------------------------------
 
   occ.covs <- point_info %>%
-    dplyr::group_by(Route_point_id, route_id, point_id) %>%
-    dplyr::summarise(
-      dplyr::across(dplyr::all_of(occ_covariates), ~ {
-        if (is.numeric(.x)) mean(.x, na.rm = TRUE)
-        else if (is.factor(.x) || is.character(.x)) mode_value(.x)
-        else NA
-      }),
-      .groups = "drop"
+
+    dplyr::group_by(
+      Route_point_id,
+      route_id,
+      point_id
     ) %>%
-    dplyr::arrange(match(Route_point_id, all_points))
+
+    dplyr::group_modify(
+      ~ {
+
+        data <- .x
+
+        out <- list()
+
+        for (cov_name in names(covariate_matches)) {
+
+          cols <- covariate_matches[[cov_name]]
+
+          # --------------------------------------------------
+          # Extract all columns belonging to this covariate
+          # --------------------------------------------------
+
+          x <- data[, cols, drop = FALSE]
+
+          # --------------------------------------------------
+          # Numeric covariates
+          # --------------------------------------------------
+
+          if (
+            all(
+              vapply(
+                x,
+                is.numeric,
+                logical(1)
+              )
+            )
+          ) {
+
+            values <- unlist(
+              x,
+              use.names = FALSE
+            )
+
+            value <- mean(
+              values,
+              na.rm = TRUE
+            )
+
+            # mean(numeric(0), na.rm = TRUE) -> NaN
+            if (is.nan(value)) {
+              value <- NA_real_
+            }
+
+          } else {
+
+            # ------------------------------------------------
+            # Factor / character covariates
+            # ------------------------------------------------
+
+            values <- unlist(
+              x,
+              use.names = FALSE
+            )
+
+            value <- mode_value(
+              values
+            )
+          }
+
+          # --------------------------------------------------
+          # Store using BASE covariate name
+          # --------------------------------------------------
+
+          out[[cov_name]] <- value
+        }
+
+        tibble::as_tibble(out)
+      }
+    ) %>%
+
+    dplyr::ungroup() %>%
+
+    dplyr::arrange(
+      match(
+        Route_point_id,
+        all_points
+      )
+    )
+
 
   if (use_route_random_effect) {
     occ.covs <- occ.covs %>%
@@ -559,20 +821,49 @@ fit_ecosystem_spoccupancy <- function(
     detection_covs <- det_covariates
   }
 
-  fill_row_values <- function(mat, original_vals) {
-    if (!fill_detection_vals) return(mat)
+  # ==========================================================
+  # Fill missing detection covariate values
+  # ==========================================================
 
-    is_num <- is.numeric(original_vals)
+  fill_row_values <- function(
+    mat,
+    original_vals
+  ) {
+
+    if (!fill_detection_vals) {
+      return(mat)
+    }
+
+    is_num <- is.numeric(
+      original_vals
+    )
 
     for (i in seq_len(nrow(mat))) {
+
       row_vals <- mat[i, ]
 
-      if (all(is.na(row_vals))) next
+      # Nothing to fill if the entire row is NA
+      if (all(is.na(row_vals))) {
+        next
+      }
 
       fill_value <- if (is_num) {
-        mean(as.numeric(row_vals), na.rm = TRUE)
+
+        mean(
+          as.numeric(row_vals),
+          na.rm = TRUE
+        )
+
       } else {
-        mode_value(row_vals)
+
+        mode_value(
+          row_vals
+        )
+      }
+
+      # Avoid inserting NaN
+      if (is.numeric(fill_value) && is.nan(fill_value)) {
+        next
       }
 
       mat[i, is.na(row_vals)] <- fill_value
@@ -581,31 +872,279 @@ fit_ecosystem_spoccupancy <- function(
     mat
   }
 
-  make_det_cov_matrix <- function(cov_name) {
-    tmp <- point_info %>%
-      dplyr::select(Route_point_id, Year, !!rlang::sym(cov_name)) %>%
-      tidyr::pivot_wider(
-        names_from  = Year,
-        values_from = !!rlang::sym(cov_name)
+
+  # ==========================================================
+  # Create detection covariance matrix
+  # ==========================================================
+
+  make_det_cov_matrix <- function(
+    cov_name
+  ) {
+
+    # --------------------------------------------------------
+    # Find columns beginning with the covariate name
+    # --------------------------------------------------------
+
+    matching_cols <- grep(
+      paste0(
+        "^",
+        cov_name,
+        "($|_)"
+      ),
+      names(point_info),
+      value = TRUE
+    )
+
+    if (length(matching_cols) == 0) {
+
+      stop(
+        "No columns found for detection covariate: ",
+        cov_name,
+        call. = FALSE
+      )
+    }
+
+
+    # ========================================================
+    # CASE 1: One matching column
+    # ========================================================
+
+    if (length(matching_cols) == 1) {
+
+      message(
+        cov_name,
+        ": one matching column (",
+        matching_cols,
+        "). Repeating value across all visits."
       )
 
-    tmp <- tmp[match(all_points, tmp$Route_point_id), ]
+      tmp <- point_info %>%
+        dplyr::select(
+          Route_point_id,
+          dplyr::all_of(matching_cols)
+        ) %>%
+        dplyr::distinct(
+          Route_point_id,
+          .keep_all = TRUE
+        )
 
-    mat <- as.matrix(tmp[, all_years, drop = FALSE])
-    rownames(mat) <- all_points
+      # Match site values to all_points
+      point_idx <- match(
+        all_points,
+        tmp$Route_point_id
+      )
+
+      values <- tmp[[matching_cols]][
+        point_idx
+      ]
+
+      # Repeat site-level value across visits
+      mat <- matrix(
+        values,
+        nrow = length(all_points),
+        ncol = length(all_years)
+      )
+
+      colnames(mat) <- all_years
+      rownames(mat) <- all_points
+
+      # Fill missing values if requested
+      mat <- fill_row_values(
+        mat = mat,
+        original_vals = values
+      )
+
+      return(mat)
+    }
+
+
+    # ========================================================
+    # CASE 2: Multiple matching columns
+    # ========================================================
+
+    message(
+      cov_name,
+      ": ",
+      length(matching_cols),
+      " matching columns found. ",
+      "Using year-specific values."
+    )
+
+
+    # --------------------------------------------------------
+    # Extract years from column names
+    # --------------------------------------------------------
+
+    column_years <- suppressWarnings(
+      as.numeric(
+        sub(
+          paste0(
+            "^",
+            cov_name,
+            "_"
+          ),
+          "",
+          matching_cols
+        )
+      )
+    )
+
+
+    # --------------------------------------------------------
+    # Validate extracted years
+    # --------------------------------------------------------
+
+    if (any(is.na(column_years))) {
+
+      stop(
+        "Could not extract years from columns for ",
+        cov_name,
+        ":\n",
+        paste(
+          matching_cols,
+          collapse = ", "
+        ),
+        call. = FALSE
+      )
+    }
+
+
+    # --------------------------------------------------------
+    # Sort columns by year
+    # --------------------------------------------------------
+
+    order_idx <- order(
+      column_years
+    )
+
+    matching_cols <- matching_cols[
+      order_idx
+    ]
+
+    column_years <- column_years[
+      order_idx
+    ]
+
+
+    # --------------------------------------------------------
+    # Check duplicate years
+    # --------------------------------------------------------
+
+    if (anyDuplicated(column_years)) {
+
+      stop(
+        "Multiple columns found for the same year for ",
+        cov_name,
+        ":\n",
+        paste(
+          matching_cols,
+          collapse = ", "
+        ),
+        call. = FALSE
+      )
+    }
+
+
+    # --------------------------------------------------------
+    # Create empty detection matrix
+    # --------------------------------------------------------
+
+    mat <- matrix(
+      NA_real_,
+      nrow = length(all_points),
+      ncol = length(all_years),
+      dimnames = list(
+        all_points,
+        all_years
+      )
+    )
+
+
+    # --------------------------------------------------------
+    # Fill each visit using corresponding year
+    # --------------------------------------------------------
+
+    for (j in seq_along(all_years)) {
+
+      visit_year <- all_years[j]
+
+      # Find the matching year-specific column
+      col_idx <- match(
+        visit_year,
+        column_years
+      )
+
+      # No raster available for this year
+      if (is.na(col_idx)) {
+        next
+      }
+
+      cov_col <- matching_cols[
+        col_idx
+      ]
+
+
+      # ------------------------------------------------------
+      # Select observations from this survey year
+      # ------------------------------------------------------
+
+      tmp <- point_info %>%
+        dplyr::filter(
+          Year == visit_year
+        ) %>%
+        dplyr::select(
+          Route_point_id,
+          dplyr::all_of(cov_col)
+        ) %>%
+        dplyr::distinct(
+          Route_point_id,
+          .keep_all = TRUE
+        )
+
+
+      # ------------------------------------------------------
+      # Match route points
+      # ------------------------------------------------------
+
+      point_idx <- match(
+        all_points,
+        tmp$Route_point_id
+      )
+
+
+      # ------------------------------------------------------
+      # Assign year-specific values
+      # ------------------------------------------------------
+
+      mat[, j] <- tmp[[cov_col]][point_idx]
+    }
+
+
+    # --------------------------------------------------------
+    # Fill missing detection values
+    # --------------------------------------------------------
 
     mat <- fill_row_values(
       mat = mat,
-      original_vals = point_info[[cov_name]]
+      original_vals = point_info[[matching_cols[1]]]
     )
 
     mat
   }
 
+
+  # ==========================================================
+  # Create detection covariance matrices
+  # ==========================================================
+
   det.covs <- stats::setNames(
-    lapply(detection_covs, make_det_cov_matrix),
+    lapply(
+      detection_covs,
+      make_det_cov_matrix
+    ),
     detection_covs
   )
+
   # ---------------------------------------------------------------------------
   # Global coordinates
   # ---------------------------------------------------------------------------
@@ -833,7 +1372,7 @@ fit_ecosystem_spoccupancy <- function(
         sp_products <- list()
 
         if (!is.null(out.sp)) {
-
+          if(modelChecks){
           ppc.sp  <- spOccupancy::ppcOcc(out.sp, fit.stat = "freeman-tukey", group = 1)
           bp_sp   <- mean(ppc.sp$fit.y.rep > ppc.sp$fit.y, na.rm = TRUE)
           waic.sp <- spOccupancy::waicOcc(out.sp)
@@ -846,6 +1385,12 @@ fit_ecosystem_spoccupancy <- function(
             bayesian_p = bp_sp,
             row.names  = NULL
           )
+          } else{
+            ppc.sp  <- NA
+            bp_sp   <- NA
+            waic.sp <- NA
+            ppc_df.sp <- NA
+          }
 
           # Coefficient summaries
           beta_summary            <- post_summary(out.sp$beta.samples)
@@ -1111,13 +1656,20 @@ fit_ecosystem_spoccupancy <- function(
 
       if (!is.null(out)) {
 
+        if(modelChecks){
         ppc <- spOccupancy::ppcOcc(out, fit.stat = "freeman-tukey", group = 1)
         bp_species <- colMeans(ppc$fit.y.rep > ppc$fit.y, na.rm = TRUE)
         bp_overall <- mean(ppc$fit.y.rep > ppc$fit.y, na.rm = TRUE)
         waic       <- spOccupancy::waicOcc(out)
+        } else {
+          ppc <- NA
+          bp_species <- NA
+          bp_overall <- NA
+          waic <- NA
+        }
 
         beta_comm_summary           <- post_summary(out$beta.comm.samples)
-        beta_comm_summary$parameter <- c("(Intercept)", occ_covariates)
+        beta_comm_summary$parameter <- row.names(beta_comm_summary)#c("(Intercept)", occ_covariates)
 
         alpha_comm_summary           <- post_summary(out$alpha.comm.samples)
         alpha_comm_summary$parameter <- c("(Intercept)", det_covariates)
@@ -1248,6 +1800,7 @@ fit_ecosystem_spoccupancy <- function(
             dplyr::left_join(point_info_raw, by = c("Point" = "Route_point_id"))
         }
 
+        if(modelChecks){
         ppc_df <- data.frame(
           ecosystem  = ecosystemType,
           guild      = guild,
@@ -1262,6 +1815,11 @@ fit_ecosystem_spoccupancy <- function(
         rhat_alpha_comm <- tryCatch(
           check_rhat(out$alpha.comm.samples, c("(Intercept)", det_covariates), n.chains),
           error = function(e) NULL)
+        } else {
+          ppc_df <- NA
+          rhat_beta_comm <- NA
+          rhat_alpha_comm <- NA
+        }
 
         model_products <- list(
           model               = out,
@@ -1344,7 +1902,7 @@ fit_ecosystem_spoccupancy <- function(
       psi                    = dplyr::bind_rows(lapply(all_sp_results, get_ss_prod, "psi_long")),
       z                      = dplyr::bind_rows(lapply(all_sp_results, get_ss_prod, "z_long")),
       spatial_random_effects = dplyr::bind_rows(lapply(all_sp_results, get_ss_prod, "w_long")),
-      ppc                    = dplyr::bind_rows(lapply(all_sp_results, get_ss_prod, "ppc_species")),
+      ppc                    = if(modelChecks) dplyr::bind_rows(lapply(all_sp_results, get_ss_prod, "ppc_species")) else NA,
       spatial_params         = dplyr::bind_rows(lapply(all_sp_results, get_ss_prod, "spatial_params")),
       occ_effects            = dplyr::bind_rows(lapply(all_sp_results, get_ss_prod, "occ_effects")),
       det_effects            = dplyr::bind_rows(lapply(all_sp_results, get_ss_prod, "det_effects"))
