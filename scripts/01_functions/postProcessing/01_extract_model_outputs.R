@@ -46,7 +46,8 @@
 #' @importFrom purrr map compact map_chr map_lgl
 #'
 #' @export
-extract_model_outputs <- function(paths_to_results) {
+extract_model_outputs <- function(paths_to_results,
+                                  modelChecks) {
 
   # ------------------------------------------------------------
   # 1. Expand directories into files
@@ -86,12 +87,15 @@ extract_model_outputs <- function(paths_to_results) {
     # ------------------------------------------------------------
     # 3. Extract tables safely
     # ------------------------------------------------------------
-
+if(modelChecks){
     bayes_P <- tag(
       res$model_products$ppc_species %>%
         dplyr::mutate(Mean = bayesian_p) %>%
         dplyr::select(Species, Mean)
     )
+} else {
+  bayes_P <- NA
+}
 
     beta_summary <- if (is_single) {
       tag(res$model_products$beta_summary)
@@ -144,7 +148,7 @@ extract_model_outputs <- function(paths_to_results) {
   # 6. Final output
   # ------------------------------------------------------------
   output <- list(
-    bayes_P = safe_bind(all_results, "bayes_P"),
+    bayes_P = if(modelChecks) safe_bind(all_results, "bayes_P") else NA,
     beta_summary = safe_bind(all_results, "beta_summary"),
     alpha_summary = safe_bind(all_results, "alpha_summary"),
     occ_effects = safe_bind(all_results, "occ_effects"),

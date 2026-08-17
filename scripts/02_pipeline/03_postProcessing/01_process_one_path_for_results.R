@@ -4,7 +4,8 @@
 
 if (!compareMultipleOutputs) {
 
-  outputs <- extract_model_outputs(path_to_results)
+  outputs <- extract_model_outputs(path_to_results,
+                                   modelChecks)
 
 } else {
 
@@ -17,7 +18,8 @@ if (!compareMultipleOutputs) {
     include_spatial_model = c(TRUE, FALSE)
   )
 
-  outputs <- extract_model_outputs(paths_df$path_to_results)
+  outputs <- extract_model_outputs(paths_df$path_to_results,
+                                   modelChecks)
 }
 
 # ============================================================
@@ -75,6 +77,7 @@ p_occ_det <- plot(
   ) +
   theme_model()
 
+if(modelChecks){
 p_bayes <- plot(
   outputs,
   type = "error",
@@ -86,6 +89,7 @@ p_bayes <- plot(
     x = "Bayesian p-value"
   ) +
   theme_model()
+}
 
 p_comm <- plot(
   outputs,
@@ -139,10 +143,12 @@ save_plot(
   "occupancy_detection_effects"
 )
 
+if(modelChecks){
 save_plot(
   p_bayes,
   "posterior_predictive_checks"
 )
+}
 
 save_plot(
   p_comm,
@@ -154,5 +160,227 @@ save_plot(
 # ============================================================
 
 print(p_occ_det)
-print(p_bayes)
+if(modelChecks) print(p_bayes)
 print(p_comm)
+
+
+## =======================================
+##
+## ======================================
+
+library(sf)
+library(dplyr)
+library(ggplot2)
+library(viridis)
+
+# ==========================================================
+# Prepare data
+# ==========================================================
+
+richness_sf <- scaled_richness$prediction_values_scaled_richness %>%
+  dplyr::select(
+    bioGeographic_region,
+    scaled_richness,
+    geometry
+  ) %>%
+  sf::st_as_sf()
+
+
+# Check regions
+unique(
+  richness_sf$bioGeographic_region
+)
+
+
+# ==========================================================
+# Common plot theme
+# ==========================================================
+
+richness_theme <- theme_minimal() +
+  theme(
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.grid = element_blank(),
+    legend.position = "right",
+    strip.text = element_text(
+      face = "bold",
+      size = 11
+    )
+  )
+
+
+# ==========================================================
+# 1. ALL BIOGEOGRAPHIC REGIONS TOGETHER
+# ==========================================================
+
+p_all_regions <- ggplot(
+  richness_sf
+) +
+
+  geom_sf(
+    aes(
+      colour = scaled_richness
+    ),
+    size = 0.7,
+    alpha = 0.8
+  ) +
+
+  scale_colour_viridis_c(
+    name = "Scaled richness",
+    limits = c(0, 1),
+    na.value = "grey80"
+  ) +
+
+  labs(
+    title = "Scaled bird richness",
+    subtitle = "All biogeographic regions"
+  ) +
+
+  richness_theme
+
+ggsave(
+  filename = file.path(
+    path_to_postProcessing,
+    paste0(
+      "scaled_richness_",
+      reg_file,
+      ".png"
+    )
+  ),
+  plot = p_all_regions,
+  width = 8,
+  height = 8,
+  dpi = 300
+)
+
+ggsave(
+  filename = file.path(
+    path_to_postProcessing,
+    paste0(
+      "scaled_richness_",
+      reg_file,
+      ".pdf"
+    )
+  ),
+  plot = p_all_regions,
+  width = 8,
+  height = 8,
+  dpi = 300
+)
+
+
+
+
+# ==========================================================
+# 2. ONE PANEL PER BIOGEOGRAPHIC REGION
+# ==========================================================
+
+# p_regions <- ggplot(
+#   richness_sf
+# ) +
+#
+#   geom_sf(
+#     aes(
+#       colour = scaled_richness
+#     ),
+#     size = 0.6,
+#     alpha = 0.8
+#   ) +
+#
+#   scale_colour_viridis_c(
+#     name = "Scaled richness",
+#     limits = c(0, 1),
+#     na.value = "grey80"
+#   ) +
+#
+#   facet_wrap(
+#     ~ bioGeographic_region
+#   ) +
+#
+#   labs(
+#     title = "Scaled bird richness by biogeographic region"
+#   ) +
+#
+#   richness_theme
+#
+#
+# p_regions
+
+
+
+# ==========================================================
+# Individual map for each region
+# ==========================================================
+
+regions <- unique(
+  richness_sf$bioGeographic_region
+)
+
+for (reg in regions) {
+
+  dat_reg <- richness_sf %>%
+    dplyr::filter(
+      bioGeographic_region == reg
+    )
+
+  p <- ggplot(dat_reg) +
+
+    geom_sf(
+      aes(
+        colour = scaled_richness
+      ),
+      size = 0.7,
+      alpha = 0.8
+    ) +
+
+    scale_colour_viridis_c(
+      name = "Scaled richness",
+      limits = c(0, 1),
+      na.value = "grey80"
+    ) +
+
+    labs(
+      title = "Scaled bird richness",
+      subtitle = reg
+    ) +
+
+    richness_theme
+
+  # Make filename safe
+  reg_file <- gsub(
+    "[^A-Za-z0-9_-]",
+    "_",
+    reg
+  )
+
+  ggsave(
+    filename = file.path(
+      path_to_postProcessing,
+      paste0(
+        "scaled_richness_",
+        reg_file,
+        ".png"
+      )
+    ),
+    plot = p,
+    width = 8,
+    height = 8,
+    dpi = 300
+  )
+
+  ggsave(
+    filename = file.path(
+      path_to_postProcessing,
+      paste0(
+        "scaled_richness_",
+        reg_file,
+        ".pdf"
+      )
+    ),
+    plot = p,
+    width = 8,
+    height = 8,
+    dpi = 300
+  )
+}

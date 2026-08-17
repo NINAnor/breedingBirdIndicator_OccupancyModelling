@@ -43,9 +43,9 @@ is_categorical_raster <- function(
   }
 
   integer_like <- all(vals == round(vals), na.rm = TRUE)
-  #few_unique <- length(unique(vals)) <= max_unique
+  few_unique <- length(unique(vals)) <= max_unique
 
-  integer_like #&& few_unique
+  integer_like && few_unique
 }
 
 #' Resample a Raster to a Base Template Raster

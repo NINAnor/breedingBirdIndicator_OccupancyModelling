@@ -193,27 +193,33 @@ retrieve_expertSpeciesList <- function(
   tmp <- readxl::read_excel(file_path)
 
   species_col <- grep("Vitenskapelig", names(tmp), value = TRUE)
-  ecosystem_col <- grep("Flerartsindeks", names(tmp), value = TRUE)
+  ecosystem_col <- if(ecosystem %in% "Forest"){
+    grep("Gammelskog", names(tmp), value = TRUE)
+  } else if (ecosystem %in% "Mountain"){
+      grep("Fjell_nøkkel", names(tmp), value = TRUE)
+    }
+    #grep("Flerartsindeks", names(tmp), value = TRUE)
 
   expertData <- tmp |>
     dplyr::select(
       Species = dplyr::all_of(species_col),
       ecosystemType = dplyr::all_of(ecosystem_col)
     ) |>
-    dplyr::filter(ecosystemType != "Nei") |>
-    dplyr::mutate(
-      # Now recode using the Norwegian name
-      ecosystemType = dplyr::recode(
-        ecosystemType,
-        "FJELL" = "Mountain",
-        "SKOG" = "Forest",
-        "VÅTMARK" = "Wetland",
-        "JORDBRUK" = "Farmland"
-      )
-    ) |>
-    dplyr::filter(
-     ecosystemType %in% ecosystem
-    ) |>
+    dplyr::filter(ecosystemType == "Ja") |>
+    dplyr::select(Species) |>
+    # dplyr::mutate(
+    #   # Now recode using the Norwegian name
+    #   ecosystemType = dplyr::recode(
+    #     ecosystemType,
+    #     "FJELL" = "Mountain",
+    #     "SKOG" = "Forest",
+    #     "VÅTMARK" = "Wetland",
+    #     "JORDBRUK" = "Farmland"
+    #   )
+    # ) |>
+    # dplyr::filter(
+    #  ecosystemType %in% ecosystem
+    # ) |>
     dplyr::distinct(
        Species,
         .keep_all = TRUE

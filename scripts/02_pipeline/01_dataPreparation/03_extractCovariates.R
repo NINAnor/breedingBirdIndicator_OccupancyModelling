@@ -74,27 +74,6 @@ all_covariates <- unique(c(det_covs, occ_covs))
 
 
 
-################################################################################
-# Create a common raster template
-################################################################################
-# Lets the load the protection regions # The file path is from NINA's R drive
-# R:\GeoSpatialData\ProtectedSites\Norway_ProtectedAreas\Original\Natur_Vern_norge_med_svalbard_25833.gdb
-# We load and crop to the boundary of Norway
-# All covariates are resampled onto a common 1 km grid to ensure that
-# resolution, extent, and coordinate reference system are identical.
-
-baseRaster <- create_template_raster(
-  study_region = norway_boundary,
-  resolution   = 1000,       # 1 km resolution
-  crs          = modelCrs,
-  output_file  = file.path(
-    dataFolder,
-    "processedData",
-    "prediction_grids",
-    "base_raster.tif"
-  ),
-  overwrite = TRUE
-)
 
 
 ################################################################################
@@ -116,7 +95,10 @@ cov_stack <- put_covariates_together(
     "covariate_stack.tif"
   ),
   cov_folder     = cov_folder,
-  data_folder    = dataFolder
+  data_folder    = dataFolder,
+  norway_boundary = norway_boundary,
+  modelYear = modelYear,
+  overwrite = TRUE
 )
 
 
@@ -146,6 +128,36 @@ breeding_bird_data_for_modelling <-
     point_id = sub(".*_", "", Route_point_id)
   )
 
+# --------------------------------------------------------
+# Apply categorical transformations only when requested
+# --------------------------------------------------------
+
+if ("dominantTree" %in% all_covariates) {
+
+  breeding_bird_data_for_modelling <-
+    breeding_bird_data_for_modelling %>%
+    dplyr::mutate(
+      dominantTree = dplyr::if_else(
+        is.na(dominantTree),
+        4,
+        dominantTree
+      ),
+      dominantTree = factor(
+        dominantTree
+      )
+    )
+}
+
+if ("glad_landcover" %in% all_covariates) {
+
+  breeding_bird_data_for_modelling <-
+    breeding_bird_data_for_modelling %>%
+    dplyr::mutate(
+      glad_landcover = factor(
+        glad_landCover
+      )
+    )
+}
 
 ################################################################################
 # Extract covariates at prediction locations
@@ -154,10 +166,13 @@ breeding_bird_data_for_modelling <-
 # Environmental values are extracted at prediction points so that occupancy
 # probabilities can be estimated across the landscape.
 
+# Environmental values are extracted at prediction points so that
+# occupancy probabilities can be estimated across the landscape.
+
 predictionPoints_for_modelling <-
   extract_model_covariates(
     x               = predictionPoints %>%
-      dplyr::select(-any_of(all_covariates)),
+      dplyr::select(-dplyr::any_of(all_covariates)),
     modelCrs        = modelCrs,
     all_covariates  = all_covariates,
     lon_col         = "Longitude",
@@ -165,14 +180,45 @@ predictionPoints_for_modelling <-
     input_crs       = 4326,
     covariate_stack = cov_stack,
     return          = "data.frame"
-  ) %>%
+  )
 
-  # Ensure factor levels match those used during model fitting
-  dplyr::mutate(
-    landCover = factor(
-      landCover,
-      levels = levels(
-        breeding_bird_data_for_modelling$landCover
+# --------------------------------------------------------
+# Apply dominantTree transformation only if requested
+# --------------------------------------------------------
+
+if ("dominantTree" %in% all_covariates) {
+
+  predictionPoints_for_modelling <-
+    predictionPoints_for_modelling %>%
+    dplyr::mutate(
+      dominantTree = dplyr::if_else(
+        is.na(dominantTree),
+        4,
+        dominantTree
+      ),
+      dominantTree = factor(
+        dominantTree,
+        levels = levels(
+          breeding_bird_data_for_modelling$dominantTree
+        )
       )
     )
-  )
+}
+
+# --------------------------------------------------------
+# Apply GLAD land-cover transformation only if requested
+# --------------------------------------------------------
+
+if ("glad_landcover" %in% all_covariates) {
+
+  predictionPoints_for_modelling <-
+    predictionPoints_for_modelling %>%
+    dplyr::mutate(
+      glad_landcover = factor(
+        glad_landCover,
+        levels = levels(
+          breeding_bird_data_for_modelling$glad_landcover
+        )
+      )
+    )
+}
