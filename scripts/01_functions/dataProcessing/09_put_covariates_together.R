@@ -97,6 +97,10 @@ put_covariates_together <- function(
 
   covariate_stack <- NULL
 
+  ## =====================================
+  ## DEM
+  ## ====================================
+
   if ("DEM" %in% all_covariates) {
     dem <- get_DEM(
       output_file = file.path(
@@ -117,7 +121,93 @@ put_covariates_together <- function(
     covariate_stack <- dem
   }
 
-  if ("landCover" %in% all_covariates) {
+  ## =====================================
+  ## Slope
+  ## ====================================
+
+  if("slope" %in% all_covariates){
+    if(!exists("dem")){
+      dem <- get_DEM(
+        output_file = file.path(
+          data_folder,
+          "processedData",
+          "DEM",
+          "DEM.tif"
+        )
+      )
+    }
+
+    slope <- get_slope(dem,
+                       output_file = file.path(
+                         data_folder,
+                         "processedData",
+                         "DEM",
+                         "slope.tif"
+                       )
+                       )
+
+    slope <- resample_to_baseRaster(
+      r = slope,
+      baseRaster = template,
+      name = "slope",
+      scale_continuous = scale_vars
+    )
+
+    covariate_stack <- if (is.null(covariate_stack)) {
+      slope
+    } else {
+      c(covariate_stack, slope)
+    }
+  }
+
+
+  ## =====================================
+  ## Aspect
+  ## ====================================
+
+  if("aspect" %in% all_covariates){
+    if(!exists("dem")){
+      dem <- get_DEM(
+        output_file = file.path(
+          data_folder,
+          "processedData",
+          "DEM",
+          "DEM.tif"
+        )
+      )
+    }
+
+    aspect <- get_aspect(dem,
+                       output_file = file.path(
+                         data_folder,
+                         "processedData",
+                         "DEM",
+                         "aspect.tif"
+                       )
+    )
+
+    aspect <- resample_to_baseRaster(
+      r = aspect,
+      baseRaster = template,
+      name = "aspect",
+      scale_continuous = scale_vars
+    )
+
+    covariate_stack <- if (is.null(covariate_stack)) {
+      aspect
+    } else {
+      c(covariate_stack, aspect)
+    }
+  }
+
+
+
+
+  ## =====================================
+  ## CORINE Landcover
+  ## ====================================
+
+  if ("corine_landCover" %in% all_covariates) {
     landCoverVars <- get_landcover_labels(
       x,
       modelCrs = modelCrs,
@@ -129,7 +219,7 @@ put_covariates_together <- function(
     landCoverVars <- resample_to_baseRaster(
       r = landCoverVars,
       baseRaster = template,
-      name = "landCover"
+      name = "corine_landCover"
     )
 
     covariate_stack <- if (is.null(covariate_stack)) {
@@ -137,6 +227,149 @@ put_covariates_together <- function(
     } else {
       c(covariate_stack, landCoverVars)
     }
+  }
+
+
+  ## =====================================
+  ## GLAD Landcover
+  ## ====================================
+  if("glad_landcover"  %in% all_covariates) {
+    GLADRaster <- get_GLAD_landcover(
+      input_file = file.path(
+        dataFolder,
+        "Covariates",
+        "Landcover_F_M",
+        "lc2020nor_mergedClasses.tif"
+      ),
+      model_crs = modelCrs,
+      output_file = file.path(
+        dataFolder,
+        "processedData",
+        "GLAD_lc",
+        "LCglad.tif"
+      )
+    )
+
+    GLADRaster <- resample_to_baseRaster(
+      r = GLADRaster,
+      baseRaster = template,
+      name = "glad_landCover"
+    )
+
+    covariate_stack <- if (is.null(covariate_stack)) {
+      GLADRaster
+    } else {
+      c(covariate_stack, GLADRaster)
+    }
+  }
+
+  ## =====================================
+  ## Snow melt
+  ## ====================================
+  if("snowmelt" %in% all_covariates){
+    snow_dir <- file.path(
+      path_finder("ninaGeospatialFiles"),
+      "Meteorology",
+      "Norway_SeNorge_snow",
+      "Original",
+      "sd"
+    )
+
+    years <- seq(modelYear[1], modelYear[2])
+
+    output_dir <- file.path(
+      dataFolder,
+      "processedData",
+      "Snowmelt"
+    )
+
+    dir.create(
+      output_dir,
+      recursive = TRUE,
+      showWarnings = FALSE
+    )
+
+    snowmelt <- lapply(
+      years,
+      function(y) {
+
+       get_snowmelt(
+          snow_dir = snow_dir,
+          output_file = file.path(
+            output_dir,
+            paste0("snowmelt_", y, ".tif")
+          ),
+          year = y,
+          snow_threshold = 0,
+          run_threshold = 14,
+          target_crs = modelCrs,
+          overwrite = FALSE
+        ) %>%
+          resample_to_baseRaster(
+          r = .,
+          baseRaster = template,
+          name = paste0("snowmelt_", y),
+          scale_continuous = scale_vars,
+          max_unique = 10
+        )
+      }
+    ) |>
+      rast()
+
+    covariate_stack <- if (is.null(covariate_stack)) {
+      snowmelt
+    } else {
+      c(covariate_stack, snowmelt)
+    }
+
+  }
+
+  ## =====================================
+  ## Dominant treeline
+  ## ====================================
+  if("dominantTree" %in% all_covariates){
+
+    sr16_dir <- file.path(
+      dataFolder,
+      "Covariates",
+      "SR16_forest_F"
+    )
+
+    output_dir <- file.path(
+      dataFolder,
+      "processedData",
+      "TreeSpp"
+    )
+
+    output_file <- file.path(
+      output_dir,
+      "TreeSpp.tif"
+    )
+
+    TreeSppRaster <- get_TreeSpp(
+      input_file = file.path(
+        sr16_dir,
+        "dominantTreeSpecies.tif"
+      ),
+      output_file = output_file,
+      target_crs = paste0("EPSG:", modelCrs),
+      overwrite = FALSE
+    )%>%
+      resample_to_baseRaster(
+        r = .,
+        baseRaster = template,
+        name = "dominantTree",
+        scale_continuous = scale_vars,
+        max_unique = 10
+      )
+
+    covariate_stack <- if (is.null(covariate_stack)) {
+      TreeSppRaster
+    } else {
+      c(covariate_stack, TreeSppRaster)
+    }
+
+
   }
 
   if (is.null(covariate_stack)) {

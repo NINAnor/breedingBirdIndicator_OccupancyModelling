@@ -156,11 +156,23 @@ maxSpeciesInGrps <- 24
 # 5. Model covariates
 ################################################################################
 
+covariateSelection <- readxl::read_excel(file.path(dataFolder,
+                                                   "Covariates",
+                                                     "covariatesCodingForModelling.xlsx"))
+
+if(ecosystemType %in% "Forest"){
 # Detection covariates affect the observation process.
-det_covs <- c("DEM", "landCover")
+det_covs <- covariateSelection$covariate[covariateSelection$forest_det == TRUE]
 
 # Occupancy covariates affect the ecological state process.
-occ_covs <- c("DEM", "landCover")
+occ_covs <- covariateSelection$covariate[covariateSelection$forest_occ == TRUE]
+} else if(ecosystemType %in% "Mountain") {
+  # Detection covariates affect the observation process.
+  det_covs <- covariateSelection$covariate[covariateSelection$mountain_det == TRUE]
+
+  # Occupancy covariates affect the ecological state process.
+  occ_covs <- covariateSelection$covariate[covariateSelection$mountain_occ == TRUE]
+}
 
 
 ################################################################################
