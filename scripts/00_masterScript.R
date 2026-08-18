@@ -180,14 +180,14 @@ occ_covs <- covariateSelection$covariate[covariateSelection$forest_occ == TRUE]
 # 6. MCMC settings
 ################################################################################
 
-n.batch       <- 100
+n.batch       <- 40
 batch.length  <- 500
 n.burn        <- 20000
-n.thin        <- 30 # use 10 for single species.
+n.thin        <- 40 # use 10 for single species.
 n.chains      <- 3
 
 n.neighbors   <- 10
-n.omp.threads <- 5
+n.omp.threads <- 1
 
 
 ################################################################################
