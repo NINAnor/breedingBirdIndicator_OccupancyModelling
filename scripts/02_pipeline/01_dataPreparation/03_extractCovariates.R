@@ -92,13 +92,13 @@ cov_stack <- put_covariates_together(
     dataFolder,
     "processedData",
     "covariate_stack",
-    "covariate_stack.tif"
+    paste0("covariate_stack_", ecosystemType,".tif")
   ),
   cov_folder     = cov_folder,
   data_folder    = dataFolder,
   norway_boundary = norway_boundary,
   modelYear = modelYear,
-  overwrite = TRUE
+  overwrite = FALSE
 )
 
 
@@ -154,10 +154,166 @@ if ("glad_landcover" %in% all_covariates) {
     breeding_bird_data_for_modelling %>%
     dplyr::mutate(
       glad_landcover = factor(
-        glad_landCover
+        glad_landcover
       )
     )
 }
+
+# Check if there are missing values
+
+n_total <- nrow(breeding_bird_data_for_modelling)
+n_complete <- sum(complete.cases(
+  breeding_bird_data_for_modelling %>%
+    dplyr::select(
+      dplyr::matches(
+        paste0("^(", paste(all_covariates, collapse = "|"), ")")
+      )
+    )
+))
+
+dat <- data.frame(
+  complete = n_complete,
+  incomplete = n_total - n_complete,
+  proportion_complete = n_complete / n_total,
+  proportion_incomplete = 1 - n_complete / n_total
+)
+
+if(dat$complete != n_total){
+  message(paste("There are ", dat$incomplete, "missing records"))
+
+ tt <-  breeding_bird_data_for_modelling %>%
+    dplyr::group_by(route_id, Year) %>%
+    dplyr::mutate(
+      dplyr::across(
+        where(is.numeric),
+        ~ if_else(
+          is.na(.x),
+          mean(.x, na.rm = TRUE),
+          .x
+        )
+      )
+    ) %>%
+    dplyr::ungroup()
+}
+
+# ============================================================
+# Check correlation of variables
+# ============================================================
+
+cor_data <- breeding_bird_data_for_modelling %>%
+
+  # Keep one record per Route_point_id
+  distinct(Route_point_id, .keep_all = TRUE) %>%
+
+  # Calculate multi-year means
+  mutate(
+    mean_temperature_avg = rowMeans(
+      dplyr::select(
+        .,
+        starts_with("mean_temperature_")
+      ),
+      na.rm = TRUE
+    ),
+
+    mean_precipitation_avg = rowMeans(
+      dplyr::select(
+        .,
+        starts_with("mean_precipitation_")
+      ),
+      na.rm = TRUE
+    ),
+
+    snowmelt_avg = rowMeans(
+      dplyr::select(
+        .,
+        starts_with("snowmelt_")
+      ),
+      na.rm = TRUE
+    )
+  ) %>%
+
+  # Select all original covariates + the new averages
+  dplyr::select(
+    Route_point_id,
+    dplyr::matches(
+      paste0(
+        "^(",
+        paste(all_covariates, collapse = "|"),
+        ")"
+      )
+    ),
+    mean_temperature_avg,
+    mean_precipitation_avg,
+    snowmelt_avg
+  )
+
+
+# ============================================================
+# 2. Calculate correlation matrix
+# ============================================================
+
+cor_matrix <- cor(
+  cor_data %>%
+    dplyr::select(-Route_point_id),
+  use = "pairwise.complete.obs",
+  method = "pearson"
+)
+
+round(cor_matrix, 2)
+
+
+# ============================================================
+# 3. Convert correlation matrix to long format
+# ============================================================
+
+cor_long <- as.data.frame(cor_matrix) %>%
+  tibble::rownames_to_column("Variable1") %>%
+  tidyr::pivot_longer(
+    cols = -Variable1,
+    names_to = "Variable2",
+    values_to = "Correlation"
+  )
+
+
+# ============================================================
+# 4. Plot correlation matrix
+# ============================================================
+
+ggplot(
+  cor_long,
+  aes(
+    x = Variable1,
+    y = Variable2,
+    fill = Correlation
+  )
+) +
+  geom_tile(
+    colour = "white"
+  ) +
+  geom_text(
+    aes(
+      label = sprintf("%.2f", Correlation)
+    ),
+    size = 3
+  ) +
+  scale_fill_gradient2(
+    limits = c(-1, 1),
+    midpoint = 0
+  ) +
+  labs(
+    x = NULL,
+    y = NULL,
+    fill = "Pearson's r",
+    title = "Correlation among environmental covariates"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1
+    ),
+    panel.grid = element_blank()
+  )
 
 ################################################################################
 # Extract covariates at prediction locations
@@ -215,10 +371,11 @@ if ("glad_landcover" %in% all_covariates) {
     predictionPoints_for_modelling %>%
     dplyr::mutate(
       glad_landcover = factor(
-        glad_landCover,
+        glad_landcover,
         levels = levels(
           breeding_bird_data_for_modelling$glad_landcover
         )
       )
     )
 }
+
