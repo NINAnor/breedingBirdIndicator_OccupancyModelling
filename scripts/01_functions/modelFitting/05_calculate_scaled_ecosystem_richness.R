@@ -122,6 +122,7 @@ calculate_scaled_ecosystem_richness <- function(
     value_col = "mean",
     point_spacing = 1000,
     region_col = "bioGeographic_region",
+    set_lower_bound = NULL,
     forest_only_strict = TRUE,
     na.rm = TRUE,
     output_dir = NULL,
@@ -334,12 +335,16 @@ calculate_scaled_ecosystem_richness <- function(
       )
     )
 
+  if(is.null(set_lower_bound)){
   lower_bound <- prediction_values_scaled_richness |>
     sf::st_drop_geometry() |>
     dplyr::summarise(
       lower_bound = min(expected_richness, na.rm = TRUE)
     ) |>
     dplyr::pull(lower_bound)
+  } else {
+    lower_bound <-  set_lower_bound
+  }
 
   prediction_values_scaled_richness <- prediction_values_scaled_richness |>
     dplyr::left_join(regional_reference, by = region_col) |>

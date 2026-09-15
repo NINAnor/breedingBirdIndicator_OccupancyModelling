@@ -63,7 +63,7 @@ norway_county_boundary <- norway_shape_files$county_boundaries %>%
 
 baseRaster <- create_template_raster(
   study_region = norway_boundary,
-  resolution   = 1000,       # 1 km resolution
+  resolution   = 100,       # 100m resolution
   crs          = modelCrs,
   output_file  = file.path(
     dataFolder,
@@ -124,7 +124,7 @@ if (ecosystemType == "Forest") {
     sample_prediction_points_from_raster(
       raster = .,
       selected_codes = classes,
-      n_points = 50000,
+      n_points = 100000,
       output_file = file.path(
         dataFolder,
         "processedData",
@@ -132,7 +132,7 @@ if (ecosystemType == "Forest") {
         "forest_region.parquet"
       ),
       metadata_file = NULL,
-      overwrite = FALSE,
+      overwrite = TRUE,
       seed = 123,
       sample_method = "regular"
     ) %>%

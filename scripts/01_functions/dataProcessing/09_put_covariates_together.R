@@ -317,7 +317,7 @@ put_covariates_together <- function(
     GLADRaster <- resample_to_baseRaster(
       r = GLADRaster,
       baseRaster = template,
-      name = "glad_landCover"
+      name = "glad_landcover"
     )
 
     covariate_stack <- if (is.null(covariate_stack)) {
@@ -422,7 +422,7 @@ put_covariates_together <- function(
       target_crs = paste0("EPSG:", modelCrs),
       overwrite = FALSE
     ) |>
-      tidyterra::select(dominantTree)
+      tidyterra::select(dominantTreeSpecies)
 
     TreeSppRaster <- resample_to_baseRaster(
         r = TreeSppRaster,
@@ -511,10 +511,27 @@ put_covariates_together <- function(
   }
 
   if("latitude" %in% all_covariates){
+
+
+    alternateRasts <- create_template_raster(
+      study_region = norway_boundary,
+      resolution   = 1000,       # 1km resolution
+      crs          = modelCrs,
+      output_file  = file.path(
+        dataFolder,
+        "processedData",
+        "prediction_grids",
+        "base_raster.tif"
+      ),
+      overwrite = TRUE
+    )
+
+
+
     latitude_raster <- get_latitude(
       boundary = norway_boundary,
       model_crs = modelCrs,
-      template = template,
+      template = alternateRasts,
       output_file = file.path(
         dataFolder,
         "processedData",

@@ -34,6 +34,27 @@ output_root   <- normalizePath(
 )
 
 
+# ==============================================================================
+# 3. LOAD PACKAGES AND SET TERRA OPTIONS
+# ==============================================================================
+
+library(terra)
+library(lme4)
+library(emmeans)
+library(ggplot2)
+library(dplyr)
+
+terraOptions(
+  memfrac  = 0.5,       # Fraction of available RAM
+  memmax   = 4,          # Maximum memory allocation in GB
+  threads  = 2,          # Number of processing threads
+  parallel = TRUE,
+  todisk   = TRUE,       # Prefer disk-based processing
+  tempdir  = "C:/terra_tmp",
+  datatype = "FLT4S",
+  progress = 3
+)
+
 ################################################################################
 # 2. Check required folders
 ################################################################################
@@ -116,7 +137,7 @@ invisible(lapply(function_files, source))
 ################################################################################
 
 # Ecosystem to model.
-ecosystemType <- "Forest"   # Options: "Forest", "Mountain"
+ecosystemType <- "Mountain"   # Options: "Forest", "Mountain"
 
 # Version label used in output folder names.
 version <- 1
@@ -124,9 +145,9 @@ version_label <- paste0("version_0", version)
 
 # Pipeline switches.
 fitModel       <- TRUE
-runPredictions <- TRUE
-runIndicators  <- TRUE
-runPostprocessing  <- TRUE
+runPredictions <- FALSE
+runIndicators  <- FALSE
+runPostprocessing  <- FALSE
 
 # Model type switches.
 fit_single_species <- FALSE  # TRUE: PGOcc / spPGOcc per species
@@ -136,7 +157,7 @@ fit_spatial_model  <- FALSE # TRUE: spatial NNGP model
 modelCrs <- 25833
 
 # Years included in the model.
-modelYear <- c(2021, 2025)
+modelYear <- c(2020, 2024)
 
 # Temporary directory.
 TEMPDIR <- tempdir()
@@ -180,14 +201,14 @@ occ_covs <- covariateSelection$covariate[covariateSelection$forest_occ == TRUE]
 # 6. MCMC settings
 ################################################################################
 
-n.batch       <- 100
-batch.length  <- 500
-n.burn        <- 20000
-n.thin        <- 30 # use 10 for single species.
+n.batch       <- 40
+batch.length  <- 50#0
+n.burn        <- 1000#0
+n.thin        <- 2#0 # use 10 for single species.
 n.chains      <- 3
 
 n.neighbors   <- 10
-n.omp.threads <- 5
+n.omp.threads <- 2
 
 
 ################################################################################

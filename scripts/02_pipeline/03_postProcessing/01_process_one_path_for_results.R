@@ -179,7 +179,7 @@ library(viridis)
 
 richness_sf <- scaled_richness$prediction_values_scaled_richness %>%
   dplyr::select(
-    bioGeographic_region,
+    nature_region,
     scaled_richness,
     geometry
   ) %>%
@@ -188,7 +188,7 @@ richness_sf <- scaled_richness$prediction_values_scaled_richness %>%
 
 # Check regions
 unique(
-  richness_sf$bioGeographic_region
+  richness_sf$nature_region
 )
 
 
@@ -244,7 +244,7 @@ ggsave(
     path_to_postProcessing,
     paste0(
       "scaled_richness_",
-      reg_file,
+      "all",
       ".png"
     )
   ),
@@ -259,7 +259,7 @@ ggsave(
     path_to_postProcessing,
     paste0(
       "scaled_richness_",
-      reg_file,
+      "all",
       ".pdf"
     )
   ),
@@ -314,19 +314,40 @@ ggsave(
 # ==========================================================
 
 regions <- unique(
-  richness_sf$bioGeographic_region
+  richness_sf$nature_region
 )
 
 for (reg in regions) {
 
   dat_reg <- richness_sf %>%
     dplyr::filter(
-      bioGeographic_region == reg
+      nature_region == reg
     )
 
-  p <- ggplot(dat_reg) +
+  p <- ggplot() +
 
+    # All nature regions
+    # geom_sf(
+    #   data = bio_regions,
+    #   fill = "grey95",
+    #   colour = "grey40",
+    #   linewidth = 0.4
+    # ) +
+
+    # Selected region boundary
     geom_sf(
+      data = bio_regions %>%
+        dplyr::filter(
+          nature_region == reg
+        ),
+      fill = NA,
+      colour = "black",
+      linewidth = 0.8
+    ) +
+
+    # Richness observations
+    geom_sf(
+      data = dat_reg,
       aes(
         colour = scaled_richness
       ),
@@ -347,7 +368,6 @@ for (reg in regions) {
 
     richness_theme
 
-  # Make filename safe
   reg_file <- gsub(
     "[^A-Za-z0-9_-]",
     "_",

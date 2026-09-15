@@ -1129,7 +1129,7 @@ fit_ecosystem_spoccupancy <- function(
       original_vals = point_info[[matching_cols[1]]]
     )
 
-    mat
+    return(mat)
   }
 
 
