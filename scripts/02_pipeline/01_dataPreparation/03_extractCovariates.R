@@ -70,7 +70,9 @@ if (!exists("det_covs") || !exists("occ_covs")) {
     call. = FALSE
   )
 }
-all_covariates <- unique(c(det_covs, occ_covs))
+
+all_covariates <- unique(c(det_covs,
+                           occ_covs))
 
 
 
@@ -155,6 +157,18 @@ if ("glad_landcover" %in% all_covariates) {
     dplyr::mutate(
       glad_landcover = factor(
         glad_landcover
+      )
+    )
+}
+
+
+if ("forestType" %in% all_covariates) {
+
+  breeding_bird_data_for_modelling <-
+    breeding_bird_data_for_modelling %>%
+    dplyr::mutate(
+      forestType = factor(
+        forestType
       )
     )
 }
@@ -315,6 +329,8 @@ ggplot(
     panel.grid = element_blank()
   )
 
+
+
 ################################################################################
 # Extract covariates at prediction locations
 ################################################################################
@@ -374,6 +390,24 @@ if ("glad_landcover" %in% all_covariates) {
         glad_landcover,
         levels = levels(
           breeding_bird_data_for_modelling$glad_landcover
+        )
+      )
+    )
+}
+
+
+# --------------------------------------------------------
+# Apply forest type transformation only if requested
+# --------------------------------------------------------
+if ("forestType" %in% all_covariates) {
+
+  predictionPoints_for_modelling <-
+    predictionPoints_for_modelling %>%
+    dplyr::mutate(
+      glad_landcover = factor(
+        forestType,
+        levels = levels(
+          breeding_bird_data_for_modelling$forestType
         )
       )
     )

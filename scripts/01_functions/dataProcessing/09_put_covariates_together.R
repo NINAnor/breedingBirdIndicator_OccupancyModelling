@@ -510,6 +510,10 @@ put_covariates_together <- function(
 
   }
 
+
+  ## ====================================
+  ## Latitude
+  ## ====================================
   if("latitude" %in% all_covariates){
 
 
@@ -554,6 +558,153 @@ put_covariates_together <- function(
       c(covariate_stack, latitude_raster )
     }
   }
+
+
+  ## =========================================
+  ## Treeline
+  ## ========================================
+
+  if("treeline" %in% all_covariates){
+    TL_dist <- get_Treeline(
+      input_dir = file.path(
+        dataFolder,
+        "processedData",
+        "Treeline",
+        "Skoggrense.gdb"
+      ),
+      processing_raster = file.path(
+        dataFolder,
+        "processedData",
+        "prediction_grids",
+        "base_raster_500m.tif"
+      ),
+      output_file = file.path(
+        dataFolder,
+        "processedData",
+        "Treeline",
+        "treeline.tif"
+      ),
+      target_crs = modelCrs,
+      overwrite = FALSE
+    ) %>%
+      resample_to_baseRaster(
+      r = .,
+      baseRaster = template,
+      name = "treeline",
+      scale_continuous = scale_vars,
+      max_unique = 3
+    )
+
+    covariate_stack <- if (is.null(covariate_stack)) {
+      TL_dist
+    } else {
+      c(covariate_stack, TL_dist)
+    }
+
+  }
+
+
+  ## =========================================
+  ## Wind Farm
+  ## ========================================
+
+  if("windFarm" %in% all_covariates){
+    WF_dist <- get_WindFarm(
+      input_dir = path_finder(
+        "ninaGeospatialFiles"
+      ) |>
+        file.path(
+          "Utility_governmentalServices",
+          "Norway_Windpower",
+          "Original",
+          "versjon2022"
+        ),
+
+      processing_raster = file.path(
+        dataFolder,
+        "processedData",
+        "prediction_grids",
+        "base_raster_500m.tif"
+      ),
+
+      output_file = file.path(
+        dataFolder,
+        "processedData",
+        "Windfarm",
+        "windFarm.tif"
+      ),
+
+      target_crs = modelCrs,
+
+      overwrite = FALSE
+    ) %>%
+      resample_to_baseRaster(
+        r = .,
+        baseRaster = template,
+        name = "windFarm",
+        scale_continuous = scale_vars,
+        max_unique = 3
+      )
+
+    covariate_stack <- if (is.null(covariate_stack)) {
+      WF_dist
+    } else {
+      c(covariate_stack, WF_dist)
+    }
+  }
+
+  # ===============================
+  # Forest type
+  # ===============================
+
+  if("forestType" %in% all_covariates){
+  legend <- readxl::read_excel(paste0(dataFolder,"/Covariates/Landcover_F_M/legend.xlsx"),
+                                   sheet = "NO_binnedClasses") %>%
+        dplyr::select(`lc_GLAD.tif value`, `For model - Binned cats`) %>%
+        na.omit() %>%
+        rename(glad_landCover = `lc_GLAD.tif value`,
+               forestType = `For model - Binned cats`)
+
+               forestType <- get_GLAD_landcover(
+                 input_file = file.path(
+                   dataFolder,
+                   "Covariates",
+                   "Landcover_F_M",
+                   "lc2020nor_mergedClasses.tif"
+                 ),
+                 model_crs = modelCrs,
+                 output_file = file.path(
+                   dataFolder,
+                   "processedData",
+                   "GLAD_lc",
+                   "LCglad.tif"
+                 )
+               ) %>%
+                 resample_to_baseRaster(
+                   r = .,
+                   baseRaster = baseRaster,
+                   name = "glad_landCover"
+                 )
+
+  # Create reclassification matrix
+  rcl <- as.matrix(legend[, c("glad_landCover", "forestType")])
+
+# Reclassify forestType raster
+  forestType_rast <- terra::classify(
+                 forestType,
+                 rcl = rcl,
+                 include.lowest = TRUE
+               )
+
+  names(forestType_rast) <- "forestType"
+
+  covariate_stack <- if (is.null(covariate_stack)) {
+    forestType_rast
+  } else {
+    c(covariate_stack, forestType_rast)
+  }
+    }
+
 
 
   if (is.null(covariate_stack)) {

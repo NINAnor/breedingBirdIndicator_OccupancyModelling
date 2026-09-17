@@ -160,7 +160,7 @@ fit_ecosystem_spoccupancy <- function(
 
     use_route_random_effect = FALSE,
     fill_detection_vals = TRUE,
-    modelChecks = FALSE,
+    modelChecks = TRUE,
 
     covariates_to_scale = NULL,
     remove_routes_with_missing_coords = TRUE,
@@ -337,6 +337,7 @@ fit_ecosystem_spoccupancy <- function(
 
   if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
   output_dir <- normalizePath(output_dir, winslash = "/", mustWork = FALSE)
+
   # ---------------------------------------------------------------------------
   # Helper functions
   # ---------------------------------------------------------------------------
@@ -515,12 +516,12 @@ fit_ecosystem_spoccupancy <- function(
   # ---------------------------------------------------------------------------
   # Global detection/non-detection array: species x site x year
   # ---------------------------------------------------------------------------
-
-  y_all <- array(
+ y_all <- array(
     NA_integer_,
     dim      = c(N_all, J_all, R_all),
     dimnames = list(all_species, all_points, all_years)
   )
+
 
   # Place observed detections/non-detections from available species rows.
   # If repeated records exist for a species-site-year, keep 1 if any record is 1.
@@ -1165,19 +1166,57 @@ fit_ecosystem_spoccupancy <- function(
   # Global missingness alignment
   # ---------------------------------------------------------------------------
 
-  visit_na_all <- is.na(y_all[1, , ])
+  # Actual survey occasions, independent of species
+  visited_all <- visited_mat_all
 
-  for (nm in names(det.covs)) det.covs[[nm]][visit_na_all] <- NA
-
-  y_observed_all <- !is.na(y_all[1, , ])
+  # Set detection covariates to NA where no survey occurred
   for (nm in names(det.covs)) {
-    bad <- is.na(det.covs[[nm]]) & y_observed_all
-    if (any(bad)) det.covs[[nm]][bad] <- mean(det.covs[[nm]], na.rm = TRUE)
+    det.covs[[nm]][!visited_all] <- NA
   }
+
+  # Fill missing detection covariates only for actual survey occasions
+  for (nm in names(det.covs)) {
+
+    bad <- is.na(det.covs[[nm]]) & visited_all
+
+    if (any(bad)) {
+
+      if (is.numeric(det.covs[[nm]])) {
+
+        det.covs[[nm]][bad] <-
+          mean(det.covs[[nm]][visited_all], na.rm = TRUE)
+
+      } else {
+
+        det.covs[[nm]][bad] <-
+          mode_value(det.covs[[nm]][visited_all])
+      }
+    }
+  }
+
+
+  # visit_na_all <- is.na(y_all[1, , ])
+  #
+  # for (nm in names(det.covs)) det.covs[[nm]][visit_na_all] <- NA
+  #
+  # y_observed_all <- !is.na(y_all[1, , ])
+  # for (nm in names(det.covs)) {
+  #   bad <- is.na(det.covs[[nm]]) & y_observed_all
+  #   if (any(bad)) det.covs[[nm]][bad] <- mean(det.covs[[nm]], na.rm = TRUE)
+  # }
 
   stopifnot(all(sapply(det.covs, function(x) identical(dim(x), dim(y_all)[2:3]))))
 
-  site_never_visited_all <- apply(visit_na_all, 1, all)
+  # Check whether any point was never visited in any year
+  site_never_visited_all <- apply(
+    visited_mat_all,
+    1,
+    function(x) all(!x)
+  )
+
+  # sum(all_false)
+  # site_never_visited_all <- apply(visited_all, 1, all)
+
   for (nm in names(occ.covs)) occ.covs[site_never_visited_all, nm] <- NA
 
   site_observed_all <- !site_never_visited_all

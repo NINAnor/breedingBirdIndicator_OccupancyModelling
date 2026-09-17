@@ -140,17 +140,18 @@ invisible(lapply(function_files, source))
 ecosystemType <- "Mountain"   # Options: "Forest", "Mountain"
 
 # Version label used in output folder names.
+# For testing, I use version 1 for route ID effect
 version <- 1
 version_label <- paste0("version_0", version)
 
 # Pipeline switches.
 fitModel       <- TRUE
-runPredictions <- FALSE
+runPredictions <- TRUE
 runIndicators  <- FALSE
 runPostprocessing  <- FALSE
 
 # Model type switches.
-fit_single_species <- FALSE  # TRUE: PGOcc / spPGOcc per species
+fit_single_species <- TRUE  # TRUE: PGOcc / spPGOcc per species
 fit_spatial_model  <- FALSE # TRUE: spatial NNGP model
 
 # Coordinate reference system used throughout the modelling workflow.
@@ -163,7 +164,7 @@ modelYear <- c(2020, 2024)
 TEMPDIR <- tempdir()
 
 # Setting the resolution
-pred_resolution <- 100 # in metres¨
+pred_resolution <- 500 # in metres¨
 aggregation_spacing <- 1000
 
 # Which column of predictions should be used to estimate indicators
@@ -202,13 +203,13 @@ occ_covs <- covariateSelection$covariate[covariateSelection$forest_occ == TRUE]
 ################################################################################
 
 n.batch       <- 40
-batch.length  <- 50#0
-n.burn        <- 1000#0
-n.thin        <- 2#0 # use 10 for single species.
+batch.length  <- 2000
+n.burn        <- 70000
+n.thin        <- 50 # use 10 for single species.
 n.chains      <- 3
 
 n.neighbors   <- 10
-n.omp.threads <- 2
+n.omp.threads <- 8
 
 
 ################################################################################
@@ -361,7 +362,7 @@ tryCatch(
     }
 
     # Rest for 10 minutes
-    Sys.sleep(10 * 60)
+    Sys.sleep(1 * 60)
 
     ##########################################################################
     # Prediction
@@ -381,7 +382,7 @@ tryCatch(
     # Indicator estimation
     ##########################################################################
     # Rest for 10 minutes
-    Sys.sleep(10 * 60)
+    Sys.sleep(1 * 60)
 
     if (runIndicators) {
       source(here::here(
