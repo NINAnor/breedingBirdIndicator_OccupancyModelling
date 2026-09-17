@@ -45,6 +45,7 @@ if(ecosystemType %in% "Mountain"){
       "mountain.parquet"
     )
   )
+
 } else if (ecosystemType %in% "Forest"){
 
   legend <- readxl::read_excel(paste0(dataFolder,"/Covariates/Landcover_F_M/legend.xlsx"),
@@ -147,7 +148,7 @@ prediction_results <- generate_occupancy_predictions_for_each_species_with_block
   ##########################################################################
 
   # Return predictions as raster layers
-  return = c("sf", "raster"), # options: sf or raster
+  return = "raster", #c("sf", "raster"), # options: sf or raster
   block_size = 10000,
 
   # Posterior credible intervals

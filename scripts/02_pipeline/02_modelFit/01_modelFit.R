@@ -97,6 +97,7 @@ res_forest <- fit_ecosystem_spoccupancy(
 
   # Include a random effect for survey route
   use_route_random_effect = TRUE,
+  modelChecks = modelChecks,
 
 
   ##########################################################################
