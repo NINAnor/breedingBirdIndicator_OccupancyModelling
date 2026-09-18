@@ -160,7 +160,7 @@ prediction_results <- generate_occupancy_predictions_for_each_species_with_block
   ##########################################################################
 
   # Route random effects were included during model fitting
-  use_route_random_effect = TRUE,
+  use_route_random_effect = use_route_random_effect,
 
   # Ignore route random effects during prediction
   # to obtain population-level occupancy estimates
