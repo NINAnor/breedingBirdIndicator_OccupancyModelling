@@ -140,9 +140,10 @@ invisible(lapply(function_files, source))
 ecosystemType <- "Mountain"   # Options: "Forest", "Mountain"
 
 # Version label used in output folder names.
-# For testing, I use version 1 for route ID effect
-version <- 1
+# For testing, I use version 1 for route ID effect, and version 2 withour ruote ID
+version <- 2
 version_label <- paste0("version_0", version)
+use_route_random_effect <- FALSE
 
 # Pipeline switches.
 fitModel       <- TRUE
@@ -151,7 +152,7 @@ runIndicators  <- FALSE
 runPostprocessing  <- FALSE
 
 # Model type switches.
-fit_single_species <- TRUE  # TRUE: PGOcc / spPGOcc per species
+fit_single_species <- FALSE  # TRUE: PGOcc / spPGOcc per species
 fit_spatial_model  <- FALSE # TRUE: spatial NNGP model
 
 # Coordinate reference system used throughout the modelling workflow.
@@ -203,8 +204,8 @@ occ_covs <- covariateSelection$covariate[covariateSelection$forest_occ == TRUE]
 ################################################################################
 
 n.batch       <- 40
-batch.length  <- 2000
-n.burn        <- 70000
+batch.length  <- 500 #2000
+n.burn        <- 10000 #70000
 n.thin        <- 50 # use 10 for single species.
 n.chains      <- 3
 
