@@ -398,10 +398,10 @@ tryCatch(
         "02_modelFit",
         "01_modelFit.R"
       ))
-    }
 
-    # Rest for 10 minutes
-    Sys.sleep(1 * 60)
+      # Rest for 1 minute
+      Sys.sleep(1 * 60)
+    }
 
     ##########################################################################
     # Prediction
@@ -414,13 +414,14 @@ tryCatch(
         "02_modelFit",
         "02_predictions.R"
       ))
+
+      # Rest for 1 minute
+      Sys.sleep(1 * 60)
     }
 
     ##########################################################################
     # Indicator estimation
     ##########################################################################
-    # Rest for 10 minutes
-    Sys.sleep(1 * 60)
 
     if (runIndicators) {
       source(here::here(
