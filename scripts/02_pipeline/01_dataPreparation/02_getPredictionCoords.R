@@ -32,7 +32,6 @@
 #
 ################################################################################
 
-
 ################################################################################
 # 1. Load Norway administrative boundaries
 ################################################################################
@@ -89,16 +88,15 @@ norway_county_boundary <- norway_shape_files$county_boundaries |>
 #
 ################################################################################
 
-
 # -------------------------------------------------------------------------
 # 100-m raster template
 # -------------------------------------------------------------------------
 
 baseRaster <- create_template_raster(
   study_region = norway_boundary,
-  resolution   = 100,
-  crs          = modelCrs,
-  output_file  = file.path(
+  resolution = 100,
+  crs = modelCrs,
+  output_file = file.path(
     dataFolder,
     "processedData",
     "prediction_grids",
@@ -114,9 +112,9 @@ baseRaster <- create_template_raster(
 
 baseRaster_500m <- create_template_raster(
   study_region = norway_boundary,
-  resolution   = 500,
-  crs          = modelCrs,
-  output_file  = file.path(
+  resolution = 500,
+  crs = modelCrs,
+  output_file = file.path(
     dataFolder,
     "processedData",
     "prediction_grids",
@@ -142,9 +140,7 @@ baseRaster_500m <- create_template_raster(
 #
 ################################################################################
 
-
 if (ecosystemType == "Forest") {
-
   ##############################################################################
   # 3A. Forest ecosystem
   ##############################################################################
@@ -161,7 +157,6 @@ if (ecosystemType == "Forest") {
 
   message("Generating forest prediction locations...")
 
-
   # -------------------------------------------------------------------------
   # Read GLAD land-cover class legend
   # -------------------------------------------------------------------------
@@ -176,7 +171,6 @@ if (ecosystemType == "Forest") {
     sheet = "NO_binnedClasses"
   )
 
-
   # Identify GLAD classes eligible for forest predictions.
   classes <- legend$`lc_GLAD.tif value`[
     legend$`For Forest mask - predictions` == "T"
@@ -185,7 +179,6 @@ if (ecosystemType == "Forest") {
   classes <- classes[
     !is.na(classes)
   ]
-
 
   # -------------------------------------------------------------------------
   # Prepare GLAD land-cover raster and sample prediction locations
@@ -236,15 +229,11 @@ if (ecosystemType == "Forest") {
       geometry
     )
 
-
   message(
     "Forest prediction locations generated: ",
     nrow(predictionPoints)
   )
-
-
 } else if (ecosystemType == "Mountain") {
-
   ##############################################################################
   # 3B. Mountain ecosystem
   ##############################################################################
@@ -260,7 +249,6 @@ if (ecosystemType == "Forest") {
 
   message("Generating mountain prediction locations...")
 
-
   # -------------------------------------------------------------------------
   # Define output file
   # -------------------------------------------------------------------------
@@ -272,13 +260,11 @@ if (ecosystemType == "Forest") {
     "mountain_regions.shp"
   )
 
-
   # -------------------------------------------------------------------------
   # Generate mountain prediction locations if they do not already exist
   # -------------------------------------------------------------------------
 
   if (!file.exists(mountain_output)) {
-
     # Path to the Norwegian mountain-area geodatabase.
     input_file <- file.path(
       geoSpatFolder,
@@ -287,7 +273,6 @@ if (ecosystemType == "Forest") {
       "Original",
       "Fjell_norge_publisering.gdb"
     )
-
 
     # -----------------------------------------------------------------------
     # Read and prepare mountain layer
@@ -320,7 +305,6 @@ if (ecosystemType == "Forest") {
         geometry = x
       )
 
-
     # -----------------------------------------------------------------------
     # Load and prepare GLAD land cover
     # -----------------------------------------------------------------------
@@ -348,7 +332,6 @@ if (ecosystemType == "Forest") {
         name = "glad_landCover"
       )
 
-
     # -----------------------------------------------------------------------
     # Extract land cover at mountain prediction locations
     # -----------------------------------------------------------------------
@@ -362,13 +345,11 @@ if (ecosystemType == "Forest") {
         -ID
       )
 
-
     # Combine extracted land-cover values with prediction points
     predictionPoints <- dplyr::bind_cols(
       predictionPoints,
       land_cover_values
     )
-
 
     # Remove locations belonging to excluded land-cover class
     predictionPoints <- predictionPoints |>
@@ -379,11 +360,9 @@ if (ecosystemType == "Forest") {
         geometry
       )
 
-
     # Remove intermediate object
     rm(land_cover_values)
     gc()
-
 
     # -----------------------------------------------------------------------
     # Save prediction locations
@@ -396,15 +375,11 @@ if (ecosystemType == "Forest") {
       quiet = TRUE
     )
 
-
     message(
       "Mountain prediction locations saved to: ",
       mountain_output
     )
-
-
   } else {
-
     # -----------------------------------------------------------------------
     # Load previously generated prediction locations
     # -----------------------------------------------------------------------
@@ -418,10 +393,7 @@ if (ecosystemType == "Forest") {
       quiet = TRUE
     )
   }
-
-
 } else {
-
   ##############################################################################
   # Invalid ecosystem type
   ##############################################################################
@@ -433,7 +405,6 @@ if (ecosystemType == "Forest") {
     call. = FALSE
   )
 }
-
 
 ################################################################################
 # End of script
