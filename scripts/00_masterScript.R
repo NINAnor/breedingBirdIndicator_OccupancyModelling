@@ -14,15 +14,14 @@
 #   - Make sure required data folders are available.
 ################################################################################
 
-
 ################################################################################
 # 1. User and path configuration
 ################################################################################
 
-USER <- "server" # options: all or kwaku or server
+USER <- "kwaku" # options: all or kwaku or server
 # If you are using the OneDrive, specify all. But if you are running on
 # your own local disk, specify youur woth USER in the 01_setPaths.R script
-if(USER %in% "server"){
+if (USER %in% "server") {
   args <- commandArgs(trailingOnly = TRUE)
   print(args)
   tpr <- args[1]
@@ -31,10 +30,10 @@ if(USER %in% "server"){
 
 source(here::here("scripts", "01_setPaths.R"))
 
-dataFolder    <- path_finder("dataFolder", user = USER)
+dataFolder <- path_finder("dataFolder", user = USER)
 geoSpatFolder <- path_finder("ninaGeospatialFiles", user = USER)
-expertFolder  <- path_finder("expertData", user = USER)
-output_root   <- normalizePath(
+expertFolder <- path_finder("expertData", user = USER)
+output_root <- normalizePath(
   path_finder("results", user = USER),
   mustWork = FALSE
 )
@@ -50,16 +49,29 @@ library(emmeans)
 library(ggplot2)
 library(dplyr)
 
-terraOptions(
-  memfrac  = 0.5,       # Fraction of available RAM
-  memmax   = 8,          # Maximum memory allocation in GB
-  threads  = 4,          # Number of processing threads
-  parallel = TRUE,
-  todisk   = TRUE,       # Prefer disk-based processing
-  tempdir  = "/data/scratch/kwaku",
-  datatype = "FLT4S",
-  progress = 3
-)
+if (USER %in% "server") {
+  terraOptions(
+    memfrac = 0.5, # Fraction of available RAM
+    memmax = 8, # Maximum memory allocation in GB
+    threads = 4, # Number of processing threads
+    parallel = TRUE,
+    todisk = TRUE, # Prefer disk-based processing
+    tempdir = "/data/scratch/kwaku",
+    datatype = "FLT4S",
+    progress = 3
+  )
+} else {
+  terraOptions(
+    memfrac = 0.5, # Fraction of available RAM
+    memmax = 8, # Maximum memory allocation in GB
+    threads = 4, # Number of processing threads
+    parallel = TRUE,
+    todisk = TRUE, # Prefer disk-based processing
+    tempdir = "C:/terra_tmp",
+    datatype = "FLT4S",
+    progress = 3
+  )
+}
 
 ################################################################################
 # 2. Check required folders
@@ -143,27 +155,31 @@ invisible(lapply(function_files, source))
 ################################################################################
 
 # Ecosystem to model.
-ecosystemType <- "Mountain"   # Options: "Forest", "Mountain"
+ecosystemType <- "Forest" # Options: "Forest", "Mountain"
 
 # Version label used in output folder names.
 # For testing, I use version 1 for route ID effect, and version 2 withour ruote ID
-version <- 2
+version <- 1
 version_label <- paste0("version_0", version)
-use_route_random_effect <- FALSE
-
-# Pipeline switches.
-fitModel       <- TRUE
-runPredictions <- TRUE
-runIndicators  <- FALSE
-runPostprocessing  <- FALSE
-
-# Model type switches.
-fit_single_species <- FALSE  # TRUE: PGOcc / spPGOcc per species
-if(USER %in% "server"){
-fit_single_species <- tpr
+use_route_random_effect <- TRUE
+if (version == 2) {
+  use_route_random_effect <- FALSE
 }
 
-fit_spatial_model  <- FALSE # TRUE: spatial NNGP model
+
+# Pipeline switches.
+fitModel <- TRUE
+runPredictions <- TRUE
+runIndicators <- FALSE
+runPostprocessing <- FALSE
+
+# Model type switches.
+fit_single_species <- FALSE # TRUE: PGOcc / spPGOcc per species
+if (USER %in% "server") {
+  fit_single_species <- tpr
+}
+
+fit_spatial_model <- FALSE # TRUE: spatial NNGP model
 
 # Coordinate reference system used throughout the modelling workflow.
 modelCrs <- 25833
@@ -179,7 +195,7 @@ pred_resolution <- 500 # in metres¨
 aggregation_spacing <- 1000
 
 # Which column of predictions should be used to estimate indicators
-indicator_col = "mean"
+indicator_col <- "mean"
 
 # How many groups should be used in grouping the species
 maxSpeciesInGrps <- 24
@@ -190,22 +206,32 @@ modelChecks <- FALSE
 # 5. Model covariates
 ################################################################################
 
-covariateSelection <- readxl::read_excel(file.path(dataFolder,
-                                                   "Covariates",
-                                                     "covariatesCodingForModelling.xlsx"))
+covariateSelection <- readxl::read_excel(file.path(
+  dataFolder,
+  "Covariates",
+  "covariatesCodingForModelling.xlsx"
+))
 
-if(ecosystemType %in% "Forest"){
-# Detection covariates affect the observation process.
-det_covs <- covariateSelection$covariate[covariateSelection$forest_det == TRUE]
-
-# Occupancy covariates affect the ecological state process.
-occ_covs <- covariateSelection$covariate[covariateSelection$forest_occ == TRUE]
-} else if(ecosystemType %in% "Mountain") {
+if (ecosystemType %in% "Forest") {
   # Detection covariates affect the observation process.
-  det_covs <- covariateSelection$covariate[covariateSelection$mountain_det == TRUE]
+  det_covs <- covariateSelection$covariate[
+    covariateSelection$forest_det == TRUE
+  ]
 
   # Occupancy covariates affect the ecological state process.
-  occ_covs <- covariateSelection$covariate[covariateSelection$mountain_occ == TRUE]
+  occ_covs <- covariateSelection$covariate[
+    covariateSelection$forest_occ == TRUE
+  ]
+} else if (ecosystemType %in% "Mountain") {
+  # Detection covariates affect the observation process.
+  det_covs <- covariateSelection$covariate[
+    covariateSelection$mountain_det == TRUE
+  ]
+
+  # Occupancy covariates affect the ecological state process.
+  occ_covs <- covariateSelection$covariate[
+    covariateSelection$mountain_occ == TRUE
+  ]
 }
 
 
@@ -213,13 +239,13 @@ occ_covs <- covariateSelection$covariate[covariateSelection$forest_occ == TRUE]
 # 6. MCMC settings
 ################################################################################
 
-n.batch       <- 40
-batch.length  <- 500 #2000
-n.burn        <- 10000 #70000
-n.thin        <- 50 # use 10 for single species.
-n.chains      <- 3
+n.batch <- 40
+batch.length <- 500 #2000
+n.burn <- 10000 #70000
+n.thin <- 50 # use 10 for single species.
+n.chains <- 3
 
-n.neighbors   <- 10
+n.neighbors <- 10
 n.omp.threads <- 8
 
 
@@ -271,19 +297,23 @@ path_to_indicators <- file.path(
 # for the current configurations
 compareMultipleOutputs <- FALSE
 
-if(!compareMultipleOutputs){
-path_to_postProcessing <- file.path(  output_root,
-                                      "postProcessing_outputs",
-                                      version_label,
-                                      ecosystemType,
-                                      species_dir,
-                                      spatial_dir)
+if (!compareMultipleOutputs) {
+  path_to_postProcessing <- file.path(
+    output_root,
+    "postProcessing_outputs",
+    version_label,
+    ecosystemType,
+    species_dir,
+    spatial_dir
+  )
 } else {
-  path_to_postProcessing <- file.path(  output_root,
-                                        "postProcessing_outputs",
-                                        version_label,
-                                        ecosystemType,
-                                        "multipleOutputs")
+  path_to_postProcessing <- file.path(
+    output_root,
+    "postProcessing_outputs",
+    version_label,
+    ecosystemType,
+    "multipleOutputs"
+  )
 }
 
 path_for_logs <- file.path(
@@ -316,7 +346,6 @@ sink(log_con, type = "message")
 
 tryCatch(
   {
-
     cat("Started:", as.character(Sys.time()), "\n\n")
 
     cat("Selected ecosystem:\n")
@@ -331,7 +360,6 @@ tryCatch(
     cat("Fit model:", fitModel, "\n")
     cat("Run predictions:", runPredictions, "\n")
     cat("Run indicators:", runIndicators, "\n\n")
-
 
     ##########################################################################
     # Data preparation
@@ -357,7 +385,6 @@ tryCatch(
       "01_dataPreparation",
       "03_extractCovariates.R"
     ))
-
 
     ##########################################################################
     # Model fitting
@@ -388,7 +415,6 @@ tryCatch(
       ))
     }
 
-
     ##########################################################################
     # Indicator estimation
     ##########################################################################
@@ -404,7 +430,7 @@ tryCatch(
       ))
     }
 
-    if(runPostprocessing){
+    if (runPostprocessing) {
       source(here::here(
         "scripts",
         "02_pipeline",
@@ -414,7 +440,6 @@ tryCatch(
     }
 
     cat("\nFinished:", as.character(Sys.time()), "\n")
-
   },
 
   error = function(e) {
@@ -431,5 +456,3 @@ tryCatch(
     message("Log written to: ", logfile)
   }
 )
-
-
