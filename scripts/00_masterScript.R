@@ -19,9 +19,15 @@
 # 1. User and path configuration
 ################################################################################
 
-USER <- "kwaku" # options: all or kwaku
+USER <- "server" # options: all or kwaku or server
 # If you are using the OneDrive, specify all. But if you are running on
 # your own local disk, specify youur woth USER in the 01_setPaths.R script
+if(USER %in% "server"){
+  args <- commandArgs(trailingOnly = TRUE)
+  print(args)
+  tpr <- args[1]
+  print(tpr)
+}
 
 source(here::here("scripts", "01_setPaths.R"))
 
@@ -46,11 +52,11 @@ library(dplyr)
 
 terraOptions(
   memfrac  = 0.5,       # Fraction of available RAM
-  memmax   = 4,          # Maximum memory allocation in GB
-  threads  = 2,          # Number of processing threads
+  memmax   = 8,          # Maximum memory allocation in GB
+  threads  = 4,          # Number of processing threads
   parallel = TRUE,
   todisk   = TRUE,       # Prefer disk-based processing
-  tempdir  = "C:/terra_tmp",
+  tempdir  = "/data/scratch/kwaku",
   datatype = "FLT4S",
   progress = 3
 )
@@ -153,6 +159,10 @@ runPostprocessing  <- FALSE
 
 # Model type switches.
 fit_single_species <- FALSE  # TRUE: PGOcc / spPGOcc per species
+if(USER %in% "server"){
+fit_single_species <- tpr
+}
+
 fit_spatial_model  <- FALSE # TRUE: spatial NNGP model
 
 # Coordinate reference system used throughout the modelling workflow.
