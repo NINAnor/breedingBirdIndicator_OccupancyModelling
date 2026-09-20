@@ -27,6 +27,26 @@ path_finder <- function(name = NULL, user = "all") {
 
     ninaGeospatialFiles = "R:/GeoSpatialData"
   )
+  } else if(user %in% "server"){
+    paths <- c(
+
+      # Folder containing survey route information and
+      # environmental covariates used as predictor variables.
+      dataFolder = "../03_Survey_routes_and_covariates",
+
+      # Folder containing expert-derived bird habitat information,
+      # species-habitat associations, or key species lists.
+      expertData = "../02_Key_bird_species_by_habitat",
+
+      # Folder where model outputs, predictions,
+      # diagnostics, and summaries will be stored.
+      results = "../breedingBirdsModelOutput",
+
+      # Folder where functions are stores
+      functions = "scripts/01_functions",
+
+      ninaGeospatialFiles = "/data/R/GeoSpatialData"
+    )
   } else if(user %in% "kwaku"){
     paths <- c(
 
