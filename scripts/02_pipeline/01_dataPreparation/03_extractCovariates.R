@@ -12,7 +12,6 @@
 # consistency between model fitting and prediction.
 ################################################################################
 
-
 ################################################################################
 # Define paths
 ################################################################################
@@ -44,7 +43,6 @@ missing_objects <- required_objects[
 ]
 
 if (length(missing_objects) > 0) {
-
   stop(
     paste0(
       "The following objects are missing from the global environment:\n",
@@ -53,7 +51,6 @@ if (length(missing_objects) > 0) {
     ),
     call. = FALSE
   )
-
 }
 
 
@@ -71,11 +68,7 @@ if (!exists("det_covs") || !exists("occ_covs")) {
   )
 }
 
-all_covariates <- unique(c(det_covs,
-                           occ_covs))
-
-
-
+all_covariates <- unique(c(det_covs, occ_covs))
 
 
 ################################################################################
@@ -86,18 +79,18 @@ all_covariates <- unique(c(det_covs,
 # names do not match the template raster.
 
 cov_stack <- put_covariates_together(
-  x              = ecosystemBreedingBird,
-  modelCrs       = modelCrs,
+  x = ecosystemBreedingBird,
+  modelCrs = modelCrs,
   all_covariates = all_covariates,
-  template       = baseRaster,
-  output_file    = file.path(
+  template = baseRaster,
+  output_file = file.path(
     dataFolder,
     "processedData",
     "covariate_stack",
-    paste0("covariate_stack_", ecosystemType,".tif")
+    paste0("covariate_stack_", ecosystemType, ".tif")
   ),
-  cov_folder     = cov_folder,
-  data_folder    = dataFolder,
+  cov_folder = cov_folder,
+  data_folder = dataFolder,
   norway_boundary = norway_boundary,
   modelYear = modelYear,
   overwrite = FALSE
@@ -113,15 +106,15 @@ cov_stack <- put_covariates_together(
 
 breeding_bird_data_for_modelling <-
   extract_model_covariates(
-    x               = ecosystemBreedingBird %>%
+    x = ecosystemBreedingBird %>%
       dplyr::select(-DEM),
-    modelCrs        = modelCrs,
-    all_covariates  = all_covariates,
-    lon_col         = "Longitude",
-    lat_col         = "Latitude",
-    input_crs       = 4326,
+    modelCrs = modelCrs,
+    all_covariates = all_covariates,
+    lon_col = "Longitude",
+    lat_col = "Latitude",
+    input_crs = 4326,
     covariate_stack = cov_stack,
-    return          = "data.frame"
+    return = "data.frame"
   ) %>%
 
   # Split Route_point_id into route and point identifiers
@@ -135,7 +128,6 @@ breeding_bird_data_for_modelling <-
 # --------------------------------------------------------
 
 if ("dominantTree" %in% all_covariates) {
-
   breeding_bird_data_for_modelling <-
     breeding_bird_data_for_modelling %>%
     dplyr::mutate(
@@ -151,7 +143,6 @@ if ("dominantTree" %in% all_covariates) {
 }
 
 if ("glad_landcover" %in% all_covariates) {
-
   breeding_bird_data_for_modelling <-
     breeding_bird_data_for_modelling %>%
     dplyr::mutate(
@@ -163,7 +154,6 @@ if ("glad_landcover" %in% all_covariates) {
 
 
 if ("forestType" %in% all_covariates) {
-
   breeding_bird_data_for_modelling <-
     breeding_bird_data_for_modelling %>%
     dplyr::mutate(
@@ -192,10 +182,10 @@ dat <- data.frame(
   proportion_incomplete = 1 - n_complete / n_total
 )
 
-if(dat$complete != n_total){
+if (dat$complete != n_total) {
   message(paste("There are ", dat$incomplete, "missing records"))
 
- tt <-  breeding_bird_data_for_modelling %>%
+  tt <- breeding_bird_data_for_modelling %>%
     dplyr::group_by(route_id, Year) %>%
     dplyr::mutate(
       dplyr::across(
@@ -268,7 +258,7 @@ cor_data <- breeding_bird_data_for_modelling %>%
 
 cor_matrix <- cor(
   cor_data %>%
-    dplyr::select(-Route_point_id),
+    dplyr::select(-c(Route_point_id, forestType, dominantTree)),
   use = "pairwise.complete.obs",
   method = "pearson"
 )
@@ -330,7 +320,6 @@ ggplot(
   )
 
 
-
 ################################################################################
 # Extract covariates at prediction locations
 ################################################################################
@@ -343,15 +332,15 @@ ggplot(
 
 predictionPoints_for_modelling <-
   extract_model_covariates(
-    x               = predictionPoints %>%
+    x = predictionPoints %>%
       dplyr::select(-dplyr::any_of(all_covariates)),
-    modelCrs        = modelCrs,
-    all_covariates  = all_covariates,
-    lon_col         = "Longitude",
-    lat_col         = "Latitude",
-    input_crs       = 4326,
+    modelCrs = modelCrs,
+    all_covariates = all_covariates,
+    lon_col = "Longitude",
+    lat_col = "Latitude",
+    input_crs = 4326,
     covariate_stack = cov_stack,
-    return          = "data.frame"
+    return = "data.frame"
   )
 
 # --------------------------------------------------------
@@ -359,7 +348,6 @@ predictionPoints_for_modelling <-
 # --------------------------------------------------------
 
 if ("dominantTree" %in% all_covariates) {
-
   predictionPoints_for_modelling <-
     predictionPoints_for_modelling %>%
     dplyr::mutate(
@@ -382,7 +370,6 @@ if ("dominantTree" %in% all_covariates) {
 # --------------------------------------------------------
 
 if ("glad_landcover" %in% all_covariates) {
-
   predictionPoints_for_modelling <-
     predictionPoints_for_modelling %>%
     dplyr::mutate(
@@ -400,7 +387,6 @@ if ("glad_landcover" %in% all_covariates) {
 # Apply forest type transformation only if requested
 # --------------------------------------------------------
 if ("forestType" %in% all_covariates) {
-
   predictionPoints_for_modelling <-
     predictionPoints_for_modelling %>%
     dplyr::mutate(
@@ -412,4 +398,3 @@ if ("forestType" %in% all_covariates) {
       )
     )
 }
-
