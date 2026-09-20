@@ -258,7 +258,11 @@ cor_data <- breeding_bird_data_for_modelling %>%
 
 cor_matrix <- cor(
   cor_data %>%
-    dplyr::select(-c(Route_point_id, forestType, dominantTree)),
+    dplyr::select(
+      -dplyr::any_of(
+        c("Route_point_id", "forestType", "dominantTree")
+      )
+    ),
   use = "pairwise.complete.obs",
   method = "pearson"
 )

@@ -155,11 +155,11 @@ invisible(lapply(function_files, source))
 ################################################################################
 
 # Ecosystem to model.
-ecosystemType <- "Forest" # Options: "Forest", "Mountain"
+ecosystemType <- "Mountain" # Options: "Forest", "Mountain"
 
 # Version label used in output folder names.
 # For testing, I use version 1 for route ID effect, and version 2 withour ruote ID
-version <- 1
+version <- 2
 version_label <- paste0("version_0", version)
 use_route_random_effect <- TRUE
 if (version == 2) {
@@ -168,7 +168,7 @@ if (version == 2) {
 
 
 # Pipeline switches.
-fitModel <- TRUE
+fitModel <- FALSE
 runPredictions <- TRUE
 runIndicators <- FALSE
 runPostprocessing <- FALSE
@@ -189,6 +189,7 @@ modelYear <- c(2020, 2024)
 
 # Temporary directory.
 TEMPDIR <- tempdir()
+
 
 # Setting the resolution
 pred_resolution <- 500 # in metres¨
@@ -397,10 +398,10 @@ tryCatch(
         "02_modelFit",
         "01_modelFit.R"
       ))
-    }
 
-    # Rest for 10 minutes
-    Sys.sleep(1 * 60)
+      # Rest for 1 minute
+      Sys.sleep(1 * 60)
+    }
 
     ##########################################################################
     # Prediction
@@ -413,13 +414,14 @@ tryCatch(
         "02_modelFit",
         "02_predictions.R"
       ))
+
+      # Rest for 1 minute
+      Sys.sleep(1 * 60)
     }
 
     ##########################################################################
     # Indicator estimation
     ##########################################################################
-    # Rest for 10 minutes
-    Sys.sleep(1 * 60)
 
     if (runIndicators) {
       source(here::here(
@@ -456,3 +458,18 @@ tryCatch(
     message("Log written to: ", logfile)
   }
 )
+
+files_to_remove <- list.files(
+  TEMPDIR,
+  full.names = TRUE,
+  all.files = TRUE,
+  no.. = TRUE
+)
+
+if (length(files_to_remove) > 0) {
+  unlink(
+    files_to_remove,
+    recursive = TRUE,
+    force = TRUE
+  )
+}
