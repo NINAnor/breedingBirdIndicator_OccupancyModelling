@@ -3,23 +3,18 @@
 # ============================================================
 
 if (!compareMultipleOutputs) {
-
-  outputs <- extract_model_outputs(path_to_results,
-                                   modelChecks)
-
+  outputs <- extract_model_outputs(path_to_results, modelChecks)
 } else {
-
   paths_df <- build_model_paths(
     output_root = output_root,
-    version_label = version_label,
+    version_labels = paste0("version_0", 1:2),
     ecosystemType = ecosystemType,
     existing_only = TRUE,
     include_single_species = c(TRUE, FALSE),
     include_spatial_model = c(TRUE, FALSE)
   )
 
-  outputs <- extract_model_outputs(paths_df$path_to_results,
-                                   modelChecks)
+  outputs <- extract_model_outputs(paths_df$path_to_results, modelChecks)
 }
 
 # ============================================================
@@ -38,8 +33,7 @@ print(outputs)
 # ============================================================
 
 theme_model <- function() {
-
-  ggplot2::theme_bw(base_size = 12) +
+  ggplot2::theme_bw(base_size = 14) +
     ggplot2::theme(
       plot.title = ggplot2::element_text(
         face = "bold",
@@ -66,52 +60,81 @@ theme_model <- function() {
 # Create plots
 # ============================================================
 
-p_occ_det <- plot(
+p_species_occ <- plot(
   outputs,
   type = "error",
-  components = c("det_effects", "occ_effects")
+  components = c("occ_effects")
 ) +
   ggplot2::labs(
-    title = "Detection and occupancy effects",
+    title = "Occupancy effects",
     subtitle = ecosystemType
   ) +
-  theme_model()
+  theme_model() +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  theme(legend.position = "bottom")
 
-if(modelChecks){
-p_bayes <- plot(
+
+p_species_det <- plot(
   outputs,
   type = "error",
-  components = c("bayes_P")
+  components = c("det_effects")
 ) +
   ggplot2::labs(
-    title = "Posterior predictive checks",
-    subtitle = ecosystemType,
-    x = "Bayesian p-value"
+    title = "Detection effects",
+    subtitle = ecosystemType
   ) +
-  theme_model()
+  theme_model() +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  theme(legend.position = "bottom")
+
+if (modelChecks) {
+  p_bayes <- plot(
+    outputs,
+    type = "error",
+    components = c("bayes_P")
+  ) +
+    ggplot2::labs(
+      title = "Posterior predictive checks",
+      subtitle = ecosystemType,
+      x = "Bayesian p-value"
+    ) +
+    theme_model()
 }
 
-p_comm <- plot(
+p_comm_occ <- plot(
   outputs,
   type = "error",
-  components = c("beta_summary", "alpha_summary")
+  components = c("beta_summary") #, "alpha_summary")
 ) +
   ggplot2::labs(
     title = "Community-level parameter summaries",
     subtitle = ecosystemType,
     x = "Posterior mean (95% credible interval)"
   ) +
-  theme_model()
+  theme_model() +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  theme(legend.position = "bottom")
+
+
+p_comm_det <- plot(
+  outputs,
+  type = "error",
+  components = c("alpha_summary")
+) +
+  ggplot2::labs(
+    title = "Community-level parameter summaries",
+    subtitle = ecosystemType,
+    x = "Posterior mean (95% credible interval)"
+  ) +
+  theme_model() +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  theme(legend.position = "bottom")
 
 # ============================================================
 # Save helper
 # ============================================================
 
-save_plot <- function(plot_obj,
-                      filename,
-                      width = 14,
-                      height = 10) {
-
+save_plot <- function(plot_obj, filename, width = 14, height = 10) {
   ggplot2::ggsave(
     filename = file.path(
       path_to_postProcessing,
@@ -139,30 +162,44 @@ save_plot <- function(plot_obj,
 # ============================================================
 
 save_plot(
-  p_occ_det,
-  "occupancy_detection_effects"
+  p_species_occ,
+  "occupancy_effects"
 )
 
-if(modelChecks){
 save_plot(
-  p_bayes,
-  "posterior_predictive_checks"
+  p_species_det,
+  "detection_effects"
 )
+
+if (modelChecks) {
+  save_plot(
+    p_bayes,
+    "posterior_predictive_checks"
+  )
 }
 
 save_plot(
-  p_comm,
-  "community_parameter_summaries"
+  p_comm_occ,
+  "occupancy_community_parameter_summaries"
+)
+
+save_plot(
+  p_comm_det,
+  "detection_community_parameter_summaries"
 )
 
 # ============================================================
 # Display plots in current session
 # ============================================================
 
-print(p_occ_det)
-if(modelChecks) print(p_bayes)
-print(p_comm)
+if (modelChecks) {
+  print(p_bayes)
+}
 
+print(p_comm_occ)
+print(p_comm_det)
+print(p_species_occ)
+print(p_species_det)
 
 ## =======================================
 ##
@@ -270,8 +307,6 @@ ggsave(
 )
 
 
-
-
 # ==========================================================
 # 2. ONE PANEL PER BIOGEOGRAPHIC REGION
 # ==========================================================
@@ -307,8 +342,6 @@ ggsave(
 #
 # p_regions
 
-
-
 # ==========================================================
 # Individual map for each region
 # ==========================================================
@@ -318,7 +351,6 @@ regions <- unique(
 )
 
 for (reg in regions) {
-
   dat_reg <- richness_sf %>%
     dplyr::filter(
       nature_region == reg

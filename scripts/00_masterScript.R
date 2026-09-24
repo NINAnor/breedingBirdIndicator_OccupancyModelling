@@ -18,14 +18,30 @@
 # 1. User and path configuration
 ################################################################################
 
-USER <- "kwaku" # options: all or kwaku or server
+USER <- "kwaku_parallel" # options: all or kwaku or server or kwaku_parallel
+
 # If you are using the OneDrive, specify all. But if you are running on
 # your own local disk, specify youur woth USER in the 01_setPaths.R script
-if (USER %in% "server") {
+version <- 1
+
+if (USER %in% c("server", "kwaku_parallel")) {
   args <- commandArgs(trailingOnly = TRUE)
+
+  cat("Arguments received:\n")
   print(args)
-  tpr <- args[1]
-  print(tpr)
+
+  if (length(args) != 2) {
+    stop(
+      "Expected 2 arguments: version and option. Received: ",
+      length(args)
+    )
+  }
+
+  version <- as.integer(args[1])
+  tpr <- as.logical(args[2])
+
+  cat("version =", version, "\n")
+  cat("use_option =", tpr, "\n")
 }
 
 source(here::here("scripts", "01_setPaths.R"))
@@ -57,6 +73,17 @@ if (USER %in% "server") {
     parallel = TRUE,
     todisk = TRUE, # Prefer disk-based processing
     tempdir = "/data/scratch/kwaku",
+    datatype = "FLT4S",
+    progress = 3
+  )
+} else if (USER %in% "kwaku_parallel") {
+  terraOptions(
+    memfrac = 0.3, # Fraction of available RAM
+    memmax = 3, # Maximum memory allocation in GB
+    threads = 2, # Number of processing threads
+    parallel = TRUE,
+    todisk = TRUE, # Prefer disk-based processing
+    tempdir = "C:/terra_tmp",
     datatype = "FLT4S",
     progress = 3
   )
@@ -159,7 +186,7 @@ ecosystemType <- "Mountain" # Options: "Forest", "Mountain"
 
 # Version label used in output folder names.
 # For testing, I use version 1 for route ID effect, and version 2 withour ruote ID
-version <- 2
+
 version_label <- paste0("version_0", version)
 use_route_random_effect <- TRUE
 if (version == 2) {
@@ -168,14 +195,14 @@ if (version == 2) {
 
 
 # Pipeline switches.
-fitModel <- FALSE
-runPredictions <- TRUE
+fitModel <- TRUE
+runPredictions <- FALSE
 runIndicators <- FALSE
 runPostprocessing <- FALSE
 
 # Model type switches.
-fit_single_species <- FALSE # TRUE: PGOcc / spPGOcc per species
-if (USER %in% "server") {
+fit_single_species <- TRUE # TRUE: PGOcc / spPGOcc per species
+if (USER %in% c("server", "kwaku_parallel")) {
   fit_single_species <- tpr
 }
 
@@ -188,7 +215,7 @@ modelCrs <- 25833
 modelYear <- c(2020, 2024)
 
 # Temporary directory.
-TEMPDIR <- tempdir()
+TEMPDIR <- "C:/terra_tmp"
 
 
 # Setting the resolution
@@ -201,7 +228,9 @@ indicator_col <- "mean"
 # How many groups should be used in grouping the species
 maxSpeciesInGrps <- 24
 
-modelChecks <- FALSE
+modelChecks <- TRUE
+
+useExpertData <- TRUE # use expert data for reference values
 
 ################################################################################
 # 5. Model covariates
@@ -284,6 +313,16 @@ path_to_predictions <- file.path(
   spatial_dir
 )
 
+path_to_predictions <- file.path(
+  "../../ninaProjects/breedingBirdsModelOutput",
+  #output_root,
+  "prediction_outputs",
+  version_label,
+  ecosystemType,
+  species_dir,
+  spatial_dir
+)
+
 path_to_indicators <- file.path(
   output_root,
   "indicators_outputs",
@@ -321,7 +360,9 @@ path_for_logs <- file.path(
   output_root,
   "logs",
   version_label,
-  ecosystemType
+  ecosystemType,
+  species_dir,
+  spatial_dir
 )
 
 dir.create(path_to_results, recursive = TRUE, showWarnings = FALSE)
@@ -424,12 +465,21 @@ tryCatch(
     ##########################################################################
 
     if (runIndicators) {
-      source(here::here(
-        "scripts",
-        "02_pipeline",
-        "02_modelFit",
-        "03_estimating_indicators.R"
-      ))
+      if (useExpertData) {
+        source(here::here(
+          "scripts",
+          "02_pipeline",
+          "02_modelFit",
+          "03_estimating_indicators_using_expert_references.R"
+        ))
+      } else {
+        source(here::here(
+          "scripts",
+          "02_pipeline",
+          "02_modelFit",
+          "03_estimating_indicators.R"
+        ))
+      }
     }
 
     if (runPostprocessing) {

@@ -28,17 +28,17 @@
 #'
 #' @export
 put_covariates_together <- function(
-    x,
-    modelCrs,
-    all_covariates,
-    template,
-    output_file,
-    cov_folder = file.path(path_finder("dataFolder"), "Covariates"),
-    data_folder = path_finder("dataFolder"),
-    overwrite = FALSE,
-    scale_vars = TRUE,
-    norway_boundary,
-    modelYear
+  x,
+  modelCrs,
+  all_covariates,
+  template,
+  output_file,
+  cov_folder = file.path(path_finder("dataFolder"), "Covariates"),
+  data_folder = path_finder("dataFolder"),
+  overwrite = FALSE,
+  scale_vars = TRUE,
+  norway_boundary,
+  modelYear
 ) {
   required_pkgs <- c("sf", "terra", "dplyr", "tidyterra")
 
@@ -90,7 +90,6 @@ put_covariates_together <- function(
     all_matched <- all(matched_cov_names)
 
     if (same_as_template && all_matched) {
-
       message(
         "Cached covariate stack matches template and all requested covariates."
       )
@@ -119,7 +118,6 @@ put_covariates_together <- function(
     }
 
     if (!all_matched) {
-
       missing_covariates <- all_covariates[
         !matched_cov_names
       ]
@@ -161,6 +159,9 @@ put_covariates_together <- function(
 
   covariate_stack <- NULL
 
+  # Convert Norway boundary to SpatVector
+  norway_boundary_v <- terra::vect(norway_boundary)
+
   ## =====================================
   ## DEM
   ## ====================================
@@ -173,7 +174,9 @@ put_covariates_together <- function(
         "DEM",
         "DEM.tif"
       )
-    )
+    ) |>
+      terra::crop(norway_boundary_v) |>
+      terra::mask(norway_boundary_v)
 
     dem <- resample_to_baseRaster(
       r = dem,
@@ -189,8 +192,8 @@ put_covariates_together <- function(
   ## Slope
   ## ====================================
 
-  if("slope" %in% all_covariates){
-    if(!exists("dem")){
+  if ("slope" %in% all_covariates) {
+    if (overwrite) {
       dem <- get_DEM(
         output_file = file.path(
           data_folder,
@@ -198,17 +201,23 @@ put_covariates_together <- function(
           "DEM",
           "DEM.tif"
         )
-      )
+      ) |>
+        terra::crop(norway_boundary_v) |>
+        terra::mask(norway_boundary_v)
     }
 
-    slope <- get_slope(dem,
-                       output_file = file.path(
-                         data_folder,
-                         "processedData",
-                         "DEM",
-                         "slope.tif"
-                       )
-                       )
+    slope <- get_slope(
+      dem,
+      output_file = file.path(
+        data_folder,
+        "processedData",
+        "DEM",
+        "slope.tif"
+      ),
+      overwrite = FALSE
+    ) |>
+      terra::crop(norway_boundary_v) |>
+      terra::mask(norway_boundary_v)
 
     slope <- resample_to_baseRaster(
       r = slope,
@@ -224,13 +233,12 @@ put_covariates_together <- function(
     }
   }
 
-
   ## =====================================
   ## Aspect
   ## ====================================
 
-  if("aspect" %in% all_covariates){
-    if(!exists("dem")){
+  if ("aspect" %in% all_covariates) {
+    if (!exists("dem") && overwrite) {
       dem <- get_DEM(
         output_file = file.path(
           data_folder,
@@ -238,17 +246,23 @@ put_covariates_together <- function(
           "DEM",
           "DEM.tif"
         )
-      )
+      ) |>
+        terra::crop(norway_boundary_v) |>
+        terra::mask(norway_boundary_v)
     }
 
-    aspect <- get_aspect(dem,
-                       output_file = file.path(
-                         data_folder,
-                         "processedData",
-                         "DEM",
-                         "aspect.tif"
-                       )
-    )
+    aspect <- get_aspect(
+      dem,
+      output_file = file.path(
+        data_folder,
+        "processedData",
+        "DEM",
+        "aspect.tif"
+      ),
+      overwrite = FALSE
+    ) |>
+      terra::crop(norway_boundary_v) |>
+      terra::mask(norway_boundary_v)
 
     aspect <- resample_to_baseRaster(
       r = aspect,
@@ -263,9 +277,6 @@ put_covariates_together <- function(
       c(covariate_stack, aspect)
     }
   }
-
-
-
 
   ## =====================================
   ## CORINE Landcover
@@ -293,11 +304,10 @@ put_covariates_together <- function(
     }
   }
 
-
   ## =====================================
   ## GLAD Landcover
   ## ====================================
-  if("glad_landcover"  %in% all_covariates) {
+  if ("glad_landcover" %in% all_covariates) {
     GLADRaster <- get_GLAD_landcover(
       input_file = file.path(
         dataFolder,
@@ -330,7 +340,7 @@ put_covariates_together <- function(
   ## =====================================
   ## Snow melt
   ## ====================================
-  if("snowmelt" %in% all_covariates){
+  if ("snowmelt" %in% all_covariates) {
     snow_dir <- file.path(
       path_finder("ninaGeospatialFiles"),
       "Meteorology",
@@ -354,8 +364,7 @@ put_covariates_together <- function(
     snowmelt <- lapply(
       years,
       function(y) {
-
-       get_snowmelt(
+        get_snowmelt(
           snow_dir = snow_dir,
           output_file = file.path(
             output_dir,
@@ -368,12 +377,12 @@ put_covariates_together <- function(
           overwrite = FALSE
         ) %>%
           resample_to_baseRaster(
-          r = .,
-          baseRaster = template,
-          name = paste0("snowmelt_", y),
-          scale_continuous = scale_vars,
-          max_unique = 10
-        )
+            r = .,
+            baseRaster = template,
+            name = paste0("snowmelt_", y),
+            scale_continuous = scale_vars,
+            max_unique = 10
+          )
       }
     ) |>
       rast()
@@ -383,14 +392,12 @@ put_covariates_together <- function(
     } else {
       c(covariate_stack, snowmelt)
     }
-
   }
 
   ## =====================================
   ## Dominant treeline
   ## ====================================
-  if("dominantTree" %in% all_covariates){
-
+  if ("dominantTree" %in% all_covariates) {
     sr16_dir <- file.path(
       dataFolder,
       "Covariates",
@@ -425,12 +432,12 @@ put_covariates_together <- function(
       tidyterra::select(dominantTreeSpecies)
 
     TreeSppRaster <- resample_to_baseRaster(
-        r = TreeSppRaster,
-        baseRaster = template,
-        name = "dominantTree",
-        scale_continuous = scale_vars,
-        max_unique = 3
-      )
+      r = TreeSppRaster,
+      baseRaster = template,
+      name = "dominantTree",
+      scale_continuous = scale_vars,
+      max_unique = 3
+    )
 
     covariate_stack <- if (is.null(covariate_stack)) {
       TreeSppRaster
@@ -439,19 +446,19 @@ put_covariates_together <- function(
     }
   }
 
-
   ## =====================================
   ## Mean temperature and precipitation
   ## ====================================
 
-  if(any(c("mean_precipitation", "mean_temperature") %in% all_covariates)){
+  if (any(c("mean_precipitation", "mean_temperature") %in% all_covariates)) {
     prec_temp <- lapply(
       years,
       function(yr) {
-
         get_prec_temp(
-          nc_dir = paste0(geoSpatFolder,
-                          "/Meteorology/Norway_SeNorge2018_v22.09/Original/rr_tm"),
+          nc_dir = paste0(
+            geoSpatFolder,
+            "/Meteorology/Norway_SeNorge2018_v22.09/Original/rr_tm"
+          ),
           output_dir = file.path(
             dataFolder,
             "processedData",
@@ -468,9 +475,11 @@ put_covariates_together <- function(
       }
     )
 
-    if("mean_temperature" %in% all_covariates){
-      temp <- lapply(prec_temp, function(dat){
-        dat$temperature %>%
+    if ("mean_temperature" %in% all_covariates) {
+      temp <- lapply(prec_temp, function(dat) {
+        dat$temperature |>
+          terra::crop(norway_boundary_v) |>
+          terra::mask(norway_boundary_v) %>%
           resample_to_baseRaster(
             r = .,
             baseRaster = template,
@@ -478,19 +487,21 @@ put_covariates_together <- function(
             scale_continuous = scale_vars,
             max_unique = 10
           )
-      })|>
+      }) |>
         rast()
 
       covariate_stack <- if (is.null(covariate_stack)) {
         temp
       } else {
-        c(covariate_stack, temp )
+        c(covariate_stack, temp)
       }
     }
 
-    if("mean_precipitation" %in% all_covariates){
-      prec <- lapply(prec_temp, function(dat){
-        dat$precipitation %>%
+    if ("mean_precipitation" %in% all_covariates) {
+      prec <- lapply(prec_temp, function(dat) {
+        dat$precipitation |>
+          terra::crop(norway_boundary_v) |>
+          terra::mask(norway_boundary_v) %>%
           resample_to_baseRaster(
             r = .,
             baseRaster = template,
@@ -498,39 +509,33 @@ put_covariates_together <- function(
             scale_continuous = scale_vars,
             max_unique = 10
           )
-      })|>
+      }) |>
         rast()
 
       covariate_stack <- if (is.null(covariate_stack)) {
         prec
       } else {
-        c(covariate_stack, prec )
+        c(covariate_stack, prec)
       }
     }
-
   }
-
 
   ## ====================================
   ## Latitude
   ## ====================================
-  if("latitude" %in% all_covariates){
-
-
+  if ("latitude" %in% all_covariates) {
     alternateRasts <- create_template_raster(
       study_region = norway_boundary,
-      resolution   = 1000,       # 1km resolution
-      crs          = modelCrs,
-      output_file  = file.path(
+      resolution = 1000, # 1km resolution
+      crs = modelCrs,
+      output_file = file.path(
         dataFolder,
         "processedData",
         "prediction_grids",
-        "base_raster.tif"
+        "base_raster_1000.tif"
       ),
       overwrite = TRUE
     )
-
-
 
     latitude_raster <- get_latitude(
       boundary = norway_boundary,
@@ -555,16 +560,15 @@ put_covariates_together <- function(
     covariate_stack <- if (is.null(covariate_stack)) {
       latitude_raster
     } else {
-      c(covariate_stack, latitude_raster )
+      c(covariate_stack, latitude_raster)
     }
   }
-
 
   ## =========================================
   ## Treeline
   ## ========================================
 
-  if("treeline" %in% all_covariates){
+  if ("treeline" %in% all_covariates) {
     TL_dist <- get_Treeline(
       input_dir = file.path(
         dataFolder,
@@ -588,27 +592,25 @@ put_covariates_together <- function(
       overwrite = FALSE
     ) %>%
       resample_to_baseRaster(
-      r = .,
-      baseRaster = template,
-      name = "treeline",
-      scale_continuous = scale_vars,
-      max_unique = 3
-    )
+        r = .,
+        baseRaster = template,
+        name = "treeline",
+        scale_continuous = scale_vars,
+        max_unique = 3
+      )
 
     covariate_stack <- if (is.null(covariate_stack)) {
       TL_dist
     } else {
       c(covariate_stack, TL_dist)
     }
-
   }
-
 
   ## =========================================
   ## Wind Farm
   ## ========================================
 
-  if("windFarm" %in% all_covariates){
+  if ("windFarm" %in% all_covariates) {
     WF_dist <- get_WindFarm(
       input_dir = path_finder(
         "ninaGeospatialFiles"
@@ -657,55 +659,57 @@ put_covariates_together <- function(
   # Forest type
   # ===============================
 
-  if("forestType" %in% all_covariates){
-  legend <- readxl::read_excel(paste0(dataFolder,"/Covariates/Landcover_F_M/legend.xlsx"),
-                                   sheet = "NO_binnedClasses") %>%
-        dplyr::select(`lc_GLAD.tif value`, `For model - Binned cats`) %>%
-        na.omit() %>%
-        rename(glad_landCover = `lc_GLAD.tif value`,
-               forestType = `For model - Binned cats`)
+  if ("forestType" %in% all_covariates) {
+    legend <- readxl::read_excel(
+      paste0(dataFolder, "/Covariates/Landcover_F_M/legend.xlsx"),
+      sheet = "NO_binnedClasses"
+    ) %>%
+      dplyr::select(`lc_GLAD.tif value`, `For model - Binned cats`) %>%
+      na.omit() %>%
+      rename(
+        glad_landCover = `lc_GLAD.tif value`,
+        forestType = `For model - Binned cats`
+      )
 
-               forestType <- get_GLAD_landcover(
-                 input_file = file.path(
-                   dataFolder,
-                   "Covariates",
-                   "Landcover_F_M",
-                   "lc2020nor_mergedClasses.tif"
-                 ),
-                 model_crs = modelCrs,
-                 output_file = file.path(
-                   dataFolder,
-                   "processedData",
-                   "GLAD_lc",
-                   "LCglad.tif"
-                 )
-               ) %>%
-                 resample_to_baseRaster(
-                   r = .,
-                   baseRaster = baseRaster,
-                   name = "glad_landCover"
-                 )
+    forestType <- get_GLAD_landcover(
+      input_file = file.path(
+        dataFolder,
+        "Covariates",
+        "Landcover_F_M",
+        "lc2020nor_mergedClasses.tif"
+      ),
+      model_crs = modelCrs,
+      output_file = file.path(
+        dataFolder,
+        "processedData",
+        "GLAD_lc",
+        "LCglad.tif"
+      )
+    ) %>%
+      resample_to_baseRaster(
+        r = .,
+        baseRaster = baseRaster,
+        name = "glad_landCover"
+      )
 
-  # Create reclassification matrix
-  rcl <- as.matrix(legend[, c("glad_landCover", "forestType")])
+    # Create reclassification matrix
+    rcl <- as.matrix(legend[, c("glad_landCover", "forestType")])
 
-# Reclassify forestType raster
-  forestType_rast <- terra::classify(
-                 forestType,
-                 rcl = rcl,
-                 include.lowest = TRUE
-               )
+    # Reclassify forestType raster
+    forestType_rast <- terra::classify(
+      forestType,
+      rcl = rcl,
+      include.lowest = TRUE
+    )
 
-  names(forestType_rast) <- "forestType"
+    names(forestType_rast) <- "forestType"
 
-  covariate_stack <- if (is.null(covariate_stack)) {
-    forestType_rast
-  } else {
-    c(covariate_stack, forestType_rast)
-  }
+    covariate_stack <- if (is.null(covariate_stack)) {
+      forestType_rast
+    } else {
+      c(covariate_stack, forestType_rast)
     }
-
-
+  }
 
   if (is.null(covariate_stack)) {
     stop(

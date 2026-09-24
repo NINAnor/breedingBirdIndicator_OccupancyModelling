@@ -56,7 +56,6 @@
 #'
 #' @export
 print.model_outputs <- function(x, ...) {
-
   cat("\n<Model Outputs Object>\n")
   cat("----------------------\n\n")
 
@@ -68,8 +67,13 @@ print.model_outputs <- function(x, ...) {
 
   cat("Components:\n")
 
-  components <- c("bayes_P", "beta_summary", "alpha_summary",
-                  "occ_effects", "det_effects")
+  components <- c(
+    "bayes_P",
+    "beta_summary",
+    "alpha_summary",
+    "occ_effects",
+    "det_effects"
+  )
 
   for (comp in components) {
     if (!is.null(x[[comp]])) {
@@ -181,11 +185,10 @@ print.model_outputs <- function(x, ...) {
 #'
 #' }
 plot.model_outputs <- function(
-    object,
-    type = c("error", "violin", "rank"),
-    components = NULL
+  object,
+  type = c("error", "violin", "rank"),
+  components = NULL
 ) {
-
   type <- match.arg(type)
 
   meta <- object$meta
@@ -213,24 +216,22 @@ plot.model_outputs <- function(
   # 2. BUILD DATAFRAME (FIXED PATH LOGIC)
   # ------------------------------------------------------------
 
-
-
   df <- purrr::imap_dfr(
-        available_components[components],
-        function(d, name) {
+    available_components[components],
+    function(d, name) {
+      if (is.null(d) || nrow(d) == 0) {
+        return(NULL)
+      }
 
-          if (is.null(d) || nrow(d) == 0) return(NULL)
+      d$component <- name
 
-          d$component <- name
+      # CRITICAL: preserve run identity
+      #d$path <- run_path
+      d$run_label <- c(sapply(d$path, extract_run_label))
 
-          # CRITICAL: preserve run identity
-          #d$path <- run_path
-          d$run_label <- c(sapply(d$path, extract_run_label))
-
-          d
-        }
-      )
-
+      d
+    }
+  )
 
   if (is.null(df) || nrow(df) == 0) {
     stop("No data available for plotting")
@@ -240,7 +241,6 @@ plot.model_outputs <- function(
   # 3. STANDARDISE COLUMNS
   # ------------------------------------------------------------
   standardise <- function(df) {
-
     if ("Mean" %in% names(df) && !"estimate" %in% names(df)) {
       df$estimate <- df$Mean
     }
@@ -308,10 +308,9 @@ plot.model_outputs <- function(
   # ERROR PLOT
   # ============================================================
   if (type == "error") {
-
     is_summary <- any(df$component %in% c("alpha_summary", "beta_summary"))
 
-    if(any(meta$single_species == TRUE) && is_summary){
+    if (any(meta$single_species == TRUE) && is_summary) {
       df <- df %>%
         filter(single_species == FALSE)
     }
@@ -324,19 +323,23 @@ plot.model_outputs <- function(
 
     y_var <- if (is_summary) "covariate" else "Species"
 
-    p <- ggplot2::ggplot(df, ggplot2::aes(
-      y = .data[[y_var]],
-      x = estimate,
-      color = path_label,
-      group = interaction(path_label, Species)
-    ))
+    p <- ggplot2::ggplot(
+      df,
+      ggplot2::aes(
+        y = .data[[y_var]],
+        x = estimate,
+        color = path_label,
+        group = path_label #interaction(path_label, Species)
+      )
+    )
 
     if (use_dodge) {
       p <- p +
         ggplot2::geom_point(position = pd) +
-        ggplot2::geom_errorbarh(
+        ggplot2::geom_errorbar(
           ggplot2::aes(xmin = lower, xmax = upper),
           position = pd,
+          orientation = "y",
           height = 0.2
         )
     } else {
@@ -366,12 +369,14 @@ plot.model_outputs <- function(
   # VIOLIN PLOT
   # ============================================================
   if (type == "violin") {
-
-    ggplot2::ggplot(df, ggplot2::aes(
-      x = component,
-      y = estimate,
-      fill = path_label
-    )) +
+    ggplot2::ggplot(
+      df,
+      ggplot2::aes(
+        x = component,
+        y = estimate,
+        fill = path_label
+      )
+    ) +
       ggplot2::geom_violin(
         position = ggplot2::position_dodge(0.8),
         trim = FALSE
@@ -381,7 +386,7 @@ plot.model_outputs <- function(
         position = ggplot2::position_dodge(0.8),
         outlier.size = 0.5
       ) +
-      ggplot2::facet_wrap(~ parameter, scales = "free_y") +
+      ggplot2::facet_wrap(~parameter, scales = "free_y") +
       color_scale +
       ggplot2::theme_minimal()
   }
@@ -390,7 +395,6 @@ plot.model_outputs <- function(
   # RANK PLOT
   # ============================================================
   if (type == "rank") {
-
     df_rank <- df %>%
       dplyr::group_by(parameter, component, path_label) %>%
       dplyr::summarise(
@@ -402,16 +406,19 @@ plot.model_outputs <- function(
         parameter = factor(parameter, levels = unique(parameter))
       )
 
-    ggplot2::ggplot(df_rank, ggplot2::aes(
-      x = parameter,
-      y = mean_est,
-      fill = path_label
-    )) +
+    ggplot2::ggplot(
+      df_rank,
+      ggplot2::aes(
+        x = parameter,
+        y = mean_est,
+        fill = path_label
+      )
+    ) +
       ggplot2::geom_col(
         position = if (use_dodge) pd else "identity"
       ) +
       ggplot2::coord_flip() +
-      ggplot2::facet_wrap(~ component, scales = "free_y") +
+      ggplot2::facet_wrap(~component, scales = "free_y") +
       color_scale +
       ggplot2::theme_minimal()
   }
