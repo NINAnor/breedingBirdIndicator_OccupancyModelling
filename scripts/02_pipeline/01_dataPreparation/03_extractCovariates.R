@@ -394,7 +394,7 @@ if ("forestType" %in% all_covariates) {
   predictionPoints_for_modelling <-
     predictionPoints_for_modelling %>%
     dplyr::mutate(
-      glad_landcover = factor(
+      forestType = factor(
         forestType,
         levels = levels(
           breeding_bird_data_for_modelling$forestType

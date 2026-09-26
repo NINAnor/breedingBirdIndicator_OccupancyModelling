@@ -18,7 +18,7 @@
 # 1. User and path configuration
 ################################################################################
 
-USER <- "kwaku_parallel" # options: all or kwaku or server or kwaku_parallel
+USER <- "kwaku" # options: all or kwaku or server or kwaku_parallel
 
 # If you are using the OneDrive, specify all. But if you are running on
 # your own local disk, specify youur woth USER in the 01_setPaths.R script
@@ -182,7 +182,7 @@ invisible(lapply(function_files, source))
 ################################################################################
 
 # Ecosystem to model.
-ecosystemType <- "Mountain" # Options: "Forest", "Mountain"
+ecosystemType <- "Forest" # Options: "Forest", "Mountain"
 
 # Version label used in output folder names.
 # For testing, I use version 1 for route ID effect, and version 2 withour ruote ID
@@ -196,17 +196,17 @@ if (version == 2) {
 
 # Pipeline switches.
 fitModel <- TRUE
-runPredictions <- FALSE
+runPredictions <- TRUE
 runIndicators <- FALSE
 runPostprocessing <- FALSE
 
 # Model type switches.
-fit_single_species <- TRUE # TRUE: PGOcc / spPGOcc per species
+fit_single_species <- FALSE # TRUE: PGOcc / spPGOcc per species
 if (USER %in% c("server", "kwaku_parallel")) {
   fit_single_species <- tpr
 }
 
-fit_spatial_model <- FALSE # TRUE: spatial NNGP model
+fit_spatial_model <- TRUE # TRUE: spatial NNGP model
 
 # Coordinate reference system used throughout the modelling workflow.
 modelCrs <- 25833
@@ -228,8 +228,7 @@ indicator_col <- "mean"
 # How many groups should be used in grouping the species
 maxSpeciesInGrps <- 24
 
-modelChecks <- TRUE
-
+modelChecks <- TRUE # Should posterior predictive checks be included?
 useExpertData <- TRUE # use expert data for reference values
 
 ################################################################################
@@ -275,7 +274,7 @@ n.burn <- 10000 #70000
 n.thin <- 50 # use 10 for single species.
 n.chains <- 3
 
-n.neighbors <- 10
+n.neighbors <- 3
 n.omp.threads <- 8
 
 
@@ -350,9 +349,9 @@ if (!compareMultipleOutputs) {
   path_to_postProcessing <- file.path(
     output_root,
     "postProcessing_outputs",
-    version_label,
-    ecosystemType,
-    "multipleOutputs"
+    "multipleOutputs",
+    #version_label,
+    ecosystemType
   )
 }
 

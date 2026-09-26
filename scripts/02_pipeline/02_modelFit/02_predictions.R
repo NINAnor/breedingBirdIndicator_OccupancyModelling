@@ -14,7 +14,6 @@
 #   - Species-specific occupancy maps (optional).
 ################################################################################
 
-
 ################################################################################
 # Create raster template for prediction maps
 ################################################################################
@@ -23,8 +22,7 @@
 # than that used for model fitting (typically 1 km). This raster serves
 # as a common grid onto which species occupancy probabilities are projected.
 
-if(ecosystemType %in% "Mountain"){
-
+if (ecosystemType %in% "Mountain") {
   input_file <- file.path(
     geoSpatFolder,
     "LandCover",
@@ -46,47 +44,81 @@ if(ecosystemType %in% "Mountain"){
     )
   )
 
-} else if (ecosystemType %in% "Forest"){
-
-  legend <- readxl::read_excel(paste0(dataFolder,"/Covariates/Landcover_F_M/legend.xlsx"),
-                               sheet = "NO_binnedClasses")
-  classes <- legend$`lc_GLAD.tif value`[legend$`For Forest mask - predictions` == "T"]
-  classes <- classes[!is.na(classes)]
-
-  pred_boundary <- get_GLAD_landcover(
-    input_file = file.path(
-      dataFolder,
-      "Covariates",
-      "Landcover_F_M",
-      "lc2020nor_mergedClasses.tif"
-    ),
-    model_crs = modelCrs,
+  baseRasterForPreds <- create_template_raster(
+    study_region = pred_boundary,
+    resolution = pred_resolution, # 100-m prediction grid
+    crs = modelCrs,
     output_file = file.path(
       dataFolder,
       "processedData",
-      "GLAD_lc",
-      "LCglad.tif"
+      "prediction_grids",
+      paste0("base_raster_for_predictions_", ecosystemType, "_100m.tif")
+    ),
+    overwrite = FALSE
+  )
+} else if (ecosystemType %in% "Forest") {
+  if (
+    !file.exists(file.path(
+      dataFolder,
+      "processedData",
+      "prediction_grids",
+      paste0("base_raster_for_predictions_", ecosystemType, "_100m.tif")
+    ))
+  ) {
+    legend <- readxl::read_excel(
+      paste0(dataFolder, "/Covariates/Landcover_F_M/legend.xlsx"),
+      sheet = "NO_binnedClasses"
     )
-  ) %>%
-    resample_to_baseRaster(
-      r = .,
-      baseRaster = baseRaster,
-      name = "glad_landCover"
-    )
-}
+    classes <- legend$`lc_GLAD.tif value`[
+      legend$`For Forest mask - predictions` == "T"
+    ]
+    classes <- classes[!is.na(classes)]
 
-baseRasterForPreds <- create_template_raster(
-  study_region = pred_boundary,
-  resolution   = pred_resolution,     # 100-m prediction grid
-  crs          = modelCrs,
-  output_file  = file.path(
-    dataFolder,
-    "processedData",
-    "prediction_grids",
-    paste0("base_raster_for_predictions_",ecosystemType,"_100m.tif")
-  ),
-  overwrite = TRUE
-)
+    pred_boundary <- get_GLAD_landcover(
+      input_file = file.path(
+        dataFolder,
+        "Covariates",
+        "Landcover_F_M",
+        "lc2020nor_mergedClasses.tif"
+      ),
+      model_crs = modelCrs,
+      output_file = file.path(
+        dataFolder,
+        "processedData",
+        "GLAD_lc",
+        "LCglad.tif"
+      )
+    ) %>%
+      resample_to_baseRaster(
+        r = .,
+        baseRaster = baseRaster,
+        name = "glad_landCover"
+      )
+
+    base_template <- pred_boundary
+    base_template[!base_template %in% classes] <- NA
+    base_template[!is.na(base_template)] <- 1
+
+    terra::writeRaster(
+      base_template,
+      filename = file.path(
+        dataFolder,
+        "processedData",
+        "prediction_grids",
+        paste0("base_raster_for_predictions_", ecosystemType, "_100m.tif")
+      )
+    )
+
+    baseRasterForPreds <- base_template
+  } else {
+    baseRasterForPreds <- terra::rast(file.path(
+      dataFolder,
+      "processedData",
+      "prediction_grids",
+      paste0("base_raster_for_predictions_", ecosystemType, "_100m.tif")
+    ))
+  }
+}
 
 
 ################################################################################
@@ -105,17 +137,12 @@ baseRasterForPreds <- create_template_raster(
 # (ignore_RE = TRUE), which removes route-level random effects and
 # provides smoother landscape-scale occupancy estimates.
 
-
-
-
 prediction_results <- generate_occupancy_predictions_for_each_species_with_blocks(
-
   ##########################################################################
   # Input model directory
   ##########################################################################
 
   input_dir = path_to_results,
-
 
   ##########################################################################
   # Prediction data
@@ -126,22 +153,19 @@ prediction_results <- generate_occupancy_predictions_for_each_species_with_block
   det_covariates = det_covs,
   occ_covariates = occ_covs,
 
-
   ##########################################################################
   # Spatial information
   ##########################################################################
 
   base_raster = baseRasterForPreds,
-  model_crs   = modelCrs,
+  model_crs = modelCrs,
   ecosystem_type = ecosystemType,
-
 
   ##########################################################################
   # Output directory
   ##########################################################################
 
   output_dir = path_to_predictions,
-
 
   ##########################################################################
   # Output type
@@ -154,7 +178,6 @@ prediction_results <- generate_occupancy_predictions_for_each_species_with_block
   # Posterior credible intervals
   probs = c(0.025, 0.975),
 
-
   ##########################################################################
   # Random effects
   ##########################################################################
@@ -165,7 +188,7 @@ prediction_results <- generate_occupancy_predictions_for_each_species_with_block
   # Ignore route random effects during prediction
   # to obtain population-level occupancy estimates
   ignore_RE = TRUE,
-
+  verbose = FALSE,
 
   ##########################################################################
   # Plotting options
@@ -173,12 +196,10 @@ prediction_results <- generate_occupancy_predictions_for_each_species_with_block
 
   save_plots = TRUE,
 
-  plot_width  = 8,
+  plot_width = 8,
   plot_height = 6,
-  plot_dpi    = 300
+  plot_dpi = 300
 )
-
-
 
 # prediction_results <- generate_occupancy_predictions_for_each_species(
 #

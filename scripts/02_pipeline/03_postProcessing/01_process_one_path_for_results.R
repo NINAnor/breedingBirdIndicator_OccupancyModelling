@@ -202,7 +202,7 @@ print(p_species_occ)
 print(p_species_det)
 
 ## =======================================
-##
+## Expected richness vrs expected richness
 ## ======================================
 
 library(sf)
@@ -210,229 +210,299 @@ library(dplyr)
 library(ggplot2)
 library(viridis)
 
-# ==========================================================
-# Prepare data
-# ==========================================================
+tif_files <- list.files(
+  file.path(output_root, "indicators_outputs"),
+  pattern = "\\.tif$",
+  full.names = TRUE,
+  recursive = TRUE
+)
 
-richness_sf <- scaled_richness$prediction_values_scaled_richness %>%
-  dplyr::select(
-    nature_region,
-    scaled_richness,
-    geometry
-  ) %>%
-  sf::st_as_sf()
+exp_richness_tif_files <- list.files(
+  file.path(output_root, "indicators_outputs"),
+  pattern = "expected_richness\\.tif$",
+  full.names = TRUE,
+  recursive = TRUE
+)
 
+exp_richness_tif_files <- exp_richness_tif_files[
+  grepl(
+    "[/\\\\]expected_richness[/\\\\]expected_richness\\.tif$",
+    exp_richness_tif_files
+  )
+]
 
-# Check regions
-unique(
-  richness_sf$nature_region
+exp_richness_tif_rasters <- lapply(exp_richness_tif_files, terra::rast)
+
+predCoords <- breeding_bird_data_for_modelling %>%
+  sf::st_as_sf(coords = c("long", "lat"), crs = modelCrs) %>%
+  dplyr::select(dplyr::all_of(occ_covs))
+
+median_values <- lapply(
+  exp_richness_tif_rasters,
+  function(r) {
+    terra::extract(r[["median"]], predCoords)[, 2]
+  }
+)
+
+predCoords <- dplyr::bind_cols(
+  predCoords,
+  setNames(
+    median_values,
+    c(
+      "richness_v1_multi_median",
+      "richness_v1_single_median",
+      "richness_v2_multi_median",
+      "richness_v2_single_median"
+    )
+  )
+)
+
+validationPlots <- lapply(
+  c(
+    "richness_v1_multi_median",
+    "richness_v1_single_median",
+    "richness_v2_multi_median",
+    "richness_v2_single_median"
+  ),
+  function(x) {
+    ret <- plot_occupancy_covariates(
+      data = predCoords,
+      occ_covs = occ_covs,
+      occupancy_col = x,
+      ncol = 2,
+      point_alpha = 0.2,
+      point_size = 0.8,
+      se = TRUE
+    )
+
+    ggsave(
+      filename = file.path(path_to_postProcessing, paste0(x, ".png")),
+      plot = ret,
+      units = "in",
+      width = 9,
+      height = 9
+    )
+
+    ggsave(
+      filename = file.path(path_to_postProcessing, paste0(x, ".pdf")),
+      plot = ret,
+      units = "in",
+      width = 9,
+      height = 9
+    )
+  }
 )
 
 
-# ==========================================================
-# Common plot theme
-# ==========================================================
+#######################################
+# Richness plot
+#########################################
 
-richness_theme <- theme_minimal() +
-  theme(
-    axis.title = element_blank(),
-    axis.text = element_blank(),
-    axis.ticks = element_blank(),
-    panel.grid = element_blank(),
-    legend.position = "right",
-    strip.text = element_text(
-      face = "bold",
-      size = 11
-    )
+library(terra)
+library(ggplot2)
+# Output directory
+plot_dir <- file.path(
+  path_to_postProcessing,
+  "indicator_plots"
+)
+
+dir.create(
+  plot_dir,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+raster_names <- c(
+  "version_01_multiple_species",
+  "version_01_single_species",
+  "version_02_multiple_species",
+  "version_02_single_species"
+)
+
+for (i in seq_along(exp_richness_tif_rasters)) {
+  # --------------------------------------------------------------------------
+  # Extract mean layer
+  # --------------------------------------------------------------------------
+
+  mean_raster <- exp_richness_tif_rasters[[i]][["mean"]]
+
+  # Remove outer rows/columns containing only NA values
+  mean_raster <- terra::trim(mean_raster)
+
+  # --------------------------------------------------------------------------
+  # Convert raster to data frame
+  # --------------------------------------------------------------------------
+
+  mean_df <- terra::as.data.frame(
+    mean_raster,
+    xy = TRUE,
+    na.rm = TRUE
   )
 
+  names(mean_df)[3] <- "expected_richness"
 
-# ==========================================================
-# 1. ALL BIOGEOGRAPHIC REGIONS TOGETHER
-# ==========================================================
+  # --------------------------------------------------------------------------
+  # Plot
+  # --------------------------------------------------------------------------
 
-p_all_regions <- ggplot(
-  richness_sf
-) +
-
-  geom_sf(
+  p <- ggplot(
+    mean_df,
     aes(
-      colour = scaled_richness
-    ),
-    size = 0.7,
-    alpha = 0.8
-  ) +
-
-  scale_colour_viridis_c(
-    name = "Scaled richness",
-    limits = c(0, 1),
-    na.value = "grey80"
-  ) +
-
-  labs(
-    title = "Scaled bird richness",
-    subtitle = "All biogeographic regions"
-  ) +
-
-  richness_theme
-
-ggsave(
-  filename = file.path(
-    path_to_postProcessing,
-    paste0(
-      "scaled_richness_",
-      "all",
-      ".png"
+      x = x,
+      y = y,
+      fill = expected_richness
     )
-  ),
-  plot = p_all_regions,
-  width = 8,
-  height = 8,
-  dpi = 300
-)
-
-ggsave(
-  filename = file.path(
-    path_to_postProcessing,
-    paste0(
-      "scaled_richness_",
-      "all",
-      ".pdf"
-    )
-  ),
-  plot = p_all_regions,
-  width = 8,
-  height = 8,
-  dpi = 300
-)
-
-
-# ==========================================================
-# 2. ONE PANEL PER BIOGEOGRAPHIC REGION
-# ==========================================================
-
-# p_regions <- ggplot(
-#   richness_sf
-# ) +
-#
-#   geom_sf(
-#     aes(
-#       colour = scaled_richness
-#     ),
-#     size = 0.6,
-#     alpha = 0.8
-#   ) +
-#
-#   scale_colour_viridis_c(
-#     name = "Scaled richness",
-#     limits = c(0, 1),
-#     na.value = "grey80"
-#   ) +
-#
-#   facet_wrap(
-#     ~ bioGeographic_region
-#   ) +
-#
-#   labs(
-#     title = "Scaled bird richness by biogeographic region"
-#   ) +
-#
-#   richness_theme
-#
-#
-# p_regions
-
-# ==========================================================
-# Individual map for each region
-# ==========================================================
-
-regions <- unique(
-  richness_sf$nature_region
-)
-
-for (reg in regions) {
-  dat_reg <- richness_sf %>%
-    dplyr::filter(
-      nature_region == reg
-    )
-
-  p <- ggplot() +
-
-    # All nature regions
-    # geom_sf(
-    #   data = bio_regions,
-    #   fill = "grey95",
-    #   colour = "grey40",
-    #   linewidth = 0.4
-    # ) +
-
-    # Selected region boundary
-    geom_sf(
-      data = bio_regions %>%
-        dplyr::filter(
-          nature_region == reg
-        ),
-      fill = NA,
-      colour = "black",
-      linewidth = 0.8
+  ) +
+    geom_tile(
+      width = 500,
+      height = 500
     ) +
-
-    # Richness observations
-    geom_sf(
-      data = dat_reg,
-      aes(
-        colour = scaled_richness
-      ),
-      size = 0.7,
-      alpha = 0.8
+    coord_equal(
+      expand = FALSE
     ) +
-
-    scale_colour_viridis_c(
-      name = "Scaled richness",
-      limits = c(0, 1),
-      na.value = "grey80"
+    scale_fill_viridis_c(
+      option = "viridis",
+      limits = c(2, 13),
+      breaks = seq(2, 12, by = 2),
+      name = "Expected\nrichness",
+      na.value = "transparent"
     ) +
-
     labs(
-      title = "Scaled bird richness",
-      subtitle = reg
+      title = raster_names[i],
+      x = "Easting",
+      y = "Northing"
     ) +
+    theme_minimal(base_size = 14) +
+    theme(
+      plot.title = element_text(
+        face = "bold",
+        size = 16
+      ),
+      panel.grid = element_blank(),
+      legend.position = "right"
+    )
 
-    richness_theme
-
-  reg_file <- gsub(
-    "[^A-Za-z0-9_-]",
-    "_",
-    reg
-  )
+  # --------------------------------------------------------------------------
+  # Save
+  # --------------------------------------------------------------------------
 
   ggsave(
     filename = file.path(
-      path_to_postProcessing,
+      plot_dir,
       paste0(
-        "scaled_richness_",
-        reg_file,
-        ".png"
+        raster_names[i],
+        "_expected_richness_mean.png"
       )
     ),
     plot = p,
-    width = 8,
-    height = 8,
+    width = 9,
+    height = 10,
     dpi = 300
   )
+}
+
+###################################
+# Plot indicator values
+###################################
+
+indicator_richness_tif_files <- list.files(
+  file.path(output_root, "indicators_outputs"),
+  pattern = "indicator_vals\\.tif$",
+  full.names = TRUE,
+  recursive = TRUE
+)
+
+indicator_richness_tif_rasters <- lapply(
+  indicator_richness_tif_files,
+  terra::rast
+)
+
+
+raster_names <- c(
+  "version_01_multiple_species",
+  "version_01_single_species",
+  "version_02_multiple_species",
+  "version_02_single_species"
+)
+
+for (i in seq_along(indicator_richness_tif_rasters)) {
+  # --------------------------------------------------------------------------
+  # Extract mean layer
+  # --------------------------------------------------------------------------
+
+  mean_raster <- indicator_richness_tif_rasters[[i]][["scaled_indicator"]]
+
+  # Remove outer rows/columns containing only NA values
+  mean_raster <- terra::trim(mean_raster)
+
+  # --------------------------------------------------------------------------
+  # Convert raster to data frame
+  # --------------------------------------------------------------------------
+
+  mean_df <- terra::as.data.frame(
+    mean_raster,
+    xy = TRUE,
+    na.rm = TRUE
+  )
+
+  names(mean_df)[3] <- "expected_richness"
+
+  # --------------------------------------------------------------------------
+  # Plot
+  # --------------------------------------------------------------------------
+
+  p <- ggplot(
+    mean_df,
+    aes(
+      x = x,
+      y = y,
+      fill = expected_richness
+    )
+  ) +
+    geom_tile(
+      width = 500,
+      height = 500
+    ) +
+    coord_equal(
+      expand = FALSE
+    ) +
+    scale_fill_viridis_c(
+      option = "viridis",
+      limits = c(0, 1),
+      breaks = seq(0, 1, by = 0.2),
+      name = "Indicator",
+      na.value = "transparent"
+    ) +
+    labs(
+      title = raster_names[i],
+      x = "Easting",
+      y = "Northing"
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(
+      plot.title = element_text(
+        face = "bold",
+        size = 16
+      ),
+      panel.grid = element_blank(),
+      legend.position = "right"
+    )
+
+  # --------------------------------------------------------------------------
+  # Save
+  # --------------------------------------------------------------------------
 
   ggsave(
     filename = file.path(
-      path_to_postProcessing,
+      plot_dir,
       paste0(
-        "scaled_richness_",
-        reg_file,
-        ".pdf"
+        raster_names[i],
+        "_indicator_mean.png"
       )
     ),
     plot = p,
-    width = 8,
-    height = 8,
+    width = 9,
+    height = 10,
     dpi = 300
   )
 }
