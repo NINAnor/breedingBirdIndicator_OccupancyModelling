@@ -78,6 +78,9 @@ all_covariates <- unique(c(det_covs, occ_covs))
 # Load existing raster layers or recreate them if their geometry or variable
 # names do not match the template raster.
 
+# ===========================================
+# Get scaled covariates
+# ===========================================
 cov_stack <- put_covariates_together(
   x = ecosystemBreedingBird,
   modelCrs = modelCrs,
@@ -96,6 +99,27 @@ cov_stack <- put_covariates_together(
   overwrite = FALSE
 )
 
+# ===========================================
+# Get unscaled covariates
+# ===========================================
+#cov_stack <- put_covariates_together(
+#  x = ecosystemBreedingBird,
+#  modelCrs = modelCrs,
+#  all_covariates = all_covariates,
+#  template = baseRaster,
+#  output_file = file.path(
+#    dataFolder,
+#    "processedData",
+#    "covariate_stack",
+#    paste0("covariate_stack_unscaled_", ecosystemType, ".tif")
+#  ),
+#  cov_folder = cov_folder,
+#  scale_vars = FALSE,
+#  data_folder = dataFolder,
+#  norway_boundary = norway_boundary,
+#  modelYear = modelYear,
+#  overwrite = FALSE
+#)
 
 ################################################################################
 # Extract covariates at bird survey locations

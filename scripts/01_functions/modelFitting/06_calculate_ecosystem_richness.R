@@ -160,10 +160,35 @@ calculate_ecosystem_richness <- function(
   na.rm = TRUE,
   output_dir = NULL,
   save_outputs = FALSE,
-  overwrite = TRUE
+  overwrite = TRUE,
+  method = "rds"
 ) {
-  if (!dir.exists(input_dir)) {
-    stop("`input_dir` does not exist: ", input_dir, call. = FALSE)
+  # ============================================================
+  # 1. Validate arguments
+  # ============================================================
+
+  if (!method %in% c("raster", "sf", "rds")) {
+    stop(
+      "`method` must be one of: 'raster', 'sf', or 'rds'.",
+      call. = FALSE
+    )
+  }
+
+  if (length(input_dir) == 0) {
+    stop(
+      "`input_dir` contains no paths.",
+      call. = FALSE
+    )
+  }
+
+  missing_dirs <- input_dir[!dir.exists(input_dir)]
+
+  if (length(missing_dirs) > 0) {
+    stop(
+      "The following input directories do not exist:\n",
+      paste(missing_dirs, collapse = "\n"),
+      call. = FALSE
+    )
   }
 
   if (save_outputs && is.null(output_dir)) {
@@ -174,114 +199,429 @@ calculate_ecosystem_richness <- function(
   }
 
   if (save_outputs) {
-    dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+    dir.create(
+      output_dir,
+      recursive = TRUE,
+      showWarnings = FALSE
+    )
   }
 
-  species_dirs <- list.dirs(input_dir, recursive = FALSE, full.names = TRUE)
+  # ============================================================
+  # 2. Windows short-path helper
+  #
+  # Required because the OneDrive paths are too long for some
+  # R/Arrow/Windows file operations.
+  # ============================================================
+
+  short_path <- function(path) {
+    if (length(path) != 1 || is.na(path)) {
+      stop(
+        "Invalid file path supplied to `short_path()`.",
+        call. = FALSE
+      )
+    }
+
+    result <- system(
+      sprintf(
+        'cmd /c for %%I in ("%s") do @echo %%~sI',
+        path
+      ),
+      intern = TRUE
+    )
+
+    result <- trimws(result)
+
+    if (length(result) != 1 || !nzchar(result)) {
+      stop(
+        "Could not convert path to Windows short path:\n",
+        path,
+        call. = FALSE
+      )
+    }
+
+    result
+  }
+
+  # ============================================================
+  # 3. Identify species directories
+  # ============================================================
+
+  if (length(input_dir) == 1) {
+    species_dirs <- list.dirs(
+      input_dir,
+      recursive = FALSE,
+      full.names = TRUE
+    )
+  } else {
+    # input_dir already contains species directories
+    species_dirs <- input_dir
+  }
+
+  # Remove internal/output directories such as _block_summaries
+  species_dirs <- species_dirs[
+    !grepl("^_", basename(species_dirs))
+  ]
+
+  if (length(species_dirs) == 0) {
+    stop(
+      "No species directories were found.",
+      call. = FALSE
+    )
+  }
+
+  # ============================================================
+  # 4. Function for locating the prediction file
+  # ============================================================
+
+  find_prediction_file <- function(sp_dir) {
+    files <- list.files(
+      sp_dir,
+      full.names = TRUE,
+      recursive = FALSE
+    )
+
+    pattern <- switch(
+      method,
+
+      raster = "\\.tif$",
+
+      sf = "\\.parquet$",
+
+      rds = "\\.rds$"
+    )
+
+    prediction_files <- files[
+      grepl(
+        pattern,
+        files,
+        ignore.case = TRUE
+      )
+    ]
+
+    if (length(prediction_files) == 0) {
+      stop(
+        "No ",
+        method,
+        " prediction file found in:\n",
+        sp_dir,
+        call. = FALSE
+      )
+    }
+
+    # Use the first matching prediction file
+    prediction_files[1]
+  }
+
+  # ============================================================
+  # 5. Read one species prediction
+  # ============================================================
+
+  read_prediction <- function(sp_dir) {
+    prediction_file <- find_prediction_file(sp_dir)
+
+    # Convert long OneDrive path to Windows short path
+    file_short <- short_path(prediction_file)
+
+    switch(
+      method,
+
+      raster = {
+        terra::rast(file_short)
+      },
+
+      sf = {
+        sfarrow::st_read_parquet(file_short)
+      },
+
+      rds = {
+        readRDS(file_short)
+      }
+    )
+  }
+
+  # ============================================================
+  # 6. Read species predictions
+  # ============================================================
 
   results <- setNames(
-    lapply(species_dirs, function(sp_dir) {
-      files <- list.files(sp_dir, full.names = TRUE)
-
-      tif_files <- files[grepl("\\.tif$", files)]
-      parquet_files <- files[grepl("\\.parquet$", files)]
-
-      if (length(tif_files) > 0) {
-        terra::rast(tif_files[1])
-      } else if (length(parquet_files) > 0) {
-        sfarrow::st_read_parquet(parquet_files[1])
-      } else {
-        NULL
-      }
-    }),
+    lapply(
+      species_dirs,
+      read_prediction
+    ),
     basename(species_dirs)
   )
 
-  results <- Filter(Negate(is.null), results)
-
   if (length(results) == 0) {
-    stop("No valid .tif or .parquet species outputs were found.", call. = FALSE)
+    stop(
+      "No species predictions were successfully loaded.",
+      call. = FALSE
+    )
   }
 
-  species_cols <- safe_name(names(results))
+  # ============================================================
+  # 7. Validate prediction objects
+  # ============================================================
 
-  # Extract mean, lower, and upper rasters for all species
-  mean_rasters <- lapply(results, function(x) x[["mean"]])
-  median_rasters <- lapply(results, function(x) x[["median"]])
-  lower_rasters <- lapply(results, function(x) x[["lower"]])
-  upper_rasters <- lapply(results, function(x) x[["upper"]])
-
-  # Sum across all species
-  sum_mean <- Reduce(`+`, mean_rasters)
-  sum_median <- Reduce(`+`, median_rasters)
-  sum_lower <- Reduce(`+`, lower_rasters)
-  sum_upper <- Reduce(`+`, upper_rasters)
-
-  # Combine into one SpatRaster
-  sum_occupancy <- c(
-    sum_mean,
-    sum_median,
-    sum_lower,
-    sum_upper
-  )
-
-  # Give meaningful names
-  names(sum_occupancy) <- c(
+  required_layers <- c(
     "mean",
     "median",
     "lower",
     "upper"
   )
 
+  if (method == "raster") {
+    invalid <- names(results)[
+      !vapply(
+        results,
+        function(x) {
+          all(required_layers %in% names(x))
+        },
+        logical(1)
+      )
+    ]
+
+    if (length(invalid) > 0) {
+      stop(
+        "The following species are missing one or more required ",
+        "raster layers:\n",
+        paste(invalid, collapse = "\n"),
+        call. = FALSE
+      )
+    }
+  }
+
+  # ============================================================
+  # 8. Aggregate species predictions
+  # ============================================================
+
+  if (method == "raster") {
+    # ----------------------------------------------------------
+    # Raster aggregation
+    # ----------------------------------------------------------
+
+    sum_occupancy <- results[[1]][
+      c("mean", "median", "lower", "upper")
+    ]
+
+    names(sum_occupancy) <- required_layers
+
+    # Add remaining species
+    if (length(results) > 1) {
+      for (i in seq.int(2, length(results))) {
+        x <- results[[i]][required_layers]
+
+        # Make sure all rasters have matching geometry
+        if (
+          !terra::compareGeom(
+            sum_occupancy,
+            x,
+            stopOnError = FALSE
+          )
+        ) {
+          stop(
+            "Spatial geometry does not match for species: ",
+            names(results)[i],
+            call. = FALSE
+          )
+        }
+
+        if (na.rm) {
+          for (j in seq_along(required_layers)) {
+            sum_occupancy[[j]] <- terra::ifel(
+              is.na(sum_occupancy[[j]]),
+              x[[j]],
+              sum_occupancy[[j]]
+            )
+
+            sum_occupancy[[j]] <- terra::ifel(
+              !is.na(x[[j]]),
+              sum_occupancy[[j]] + x[[j]],
+              sum_occupancy[[j]]
+            )
+          }
+        } else {
+          sum_occupancy <- sum_occupancy + x
+        }
+      }
+    }
+  } else {
+    # ----------------------------------------------------------
+    # sf / RDS aggregation
+    # ----------------------------------------------------------
+
+    sum_occupancy <- results[[1]]
+
+    # Check that required columns exist
+    missing_columns <- setdiff(
+      required_layers,
+      names(sum_occupancy)
+    )
+
+    if (length(missing_columns) > 0) {
+      stop(
+        "The first prediction object is missing: ",
+        paste(missing_columns, collapse = ", "),
+        call. = FALSE
+      )
+    }
+
+    # Check that all species have the same number of prediction
+    # locations and the same geometry
+    if (length(results) > 1) {
+      for (i in seq.int(2, length(results))) {
+        x <- results[[i]]
+
+        if (nrow(x) != nrow(sum_occupancy)) {
+          stop(
+            "Number of prediction locations differs for species: ",
+            names(results)[i],
+            call. = FALSE
+          )
+        }
+
+        # if (
+        #   inherits(sum_occupancy, "sf") &&
+        #     inherits(x, "sf")
+        # ) {
+        #   if (
+        #     !identical(
+        #       sf::st_crs(sum_occupancy),
+        #       sf::st_crs(x)
+        #     )
+        #   ) {
+        #     stop(
+        #       "CRS differs for species: ",
+        #       names(results)[i],
+        #       call. = FALSE
+        #     )
+        #   }
+
+        #  if (
+        #    !isTRUE(
+        #      all(
+        #        sf::st_equals(
+        #          sf::st_geometry(sum_occupancy),
+        #          sf::st_geometry(x),
+        #          sparse = FALSE
+        #        )
+        #      )
+        #    )
+        #  ) {
+        #    stop(
+        #      "Prediction geometries differ for species: ",
+        #      names(results)[i],
+        #      call. = FALSE
+        #    )
+        #  }
+        #}
+
+        # Add each prediction layer
+        for (layer in required_layers) {
+          if (na.rm) {
+            sum_occupancy[[layer]] <- rowSums(
+              cbind(
+                sum_occupancy[[layer]],
+                x[[layer]]
+              ),
+              na.rm = TRUE
+            )
+          } else {
+            sum_occupancy[[layer]] <-
+              sum_occupancy[[layer]] +
+              x[[layer]]
+          }
+        }
+      }
+    }
+
+    # Keep only the four prediction layers and geometry
+    if (inherits(sum_occupancy, "sf")) {
+      sum_occupancy <- sum_occupancy[
+        c(required_layers, attr(sum_occupancy, "sf_column"))
+      ]
+    } else {
+      sum_occupancy <- sum_occupancy[
+        required_layers
+      ]
+    }
+  }
+
+  # ============================================================
+  # 9. Create output object
+  # ============================================================
+
   output <- list(
     results = results,
     expected_richness = sum_occupancy
   )
 
+  # ============================================================
+  # 10. Save outputs
+  # ============================================================
+
   if (save_outputs) {
-    save_object <- function(x, filename_base, dir = output_dir) {
-      if (inherits(x, "sf")) {
-        sfarrow::st_write_parquet(
-          obj = x,
-          dsn = file.path(dir, paste0(filename_base, ".parquet")),
-          compression = "snappy"
-        )
-      } else if (inherits(x, "SpatRaster")) {
-        terra::writeRaster(
-          x,
-          filename = file.path(dir, paste0(filename_base, ".tif")),
-          overwrite = overwrite
-        )
-      } else if (inherits(x, "data.frame")) {
-        utils::write.csv(
-          x,
-          file = file.path(dir, paste0(filename_base, ".csv")),
-          row.names = FALSE
-        )
-      } else {
-        saveRDS(
-          x,
-          file = file.path(dir, paste0(filename_base, ".rds"))
-        )
-      }
+    # ----------------------------------------------------------
+    # Determine output filename/format
+    # ----------------------------------------------------------
+
+    if (inherits(sum_occupancy, "SpatRaster")) {
+      output_file <- file.path(
+        output_dir,
+        "expected_richness.tif"
+      )
+
+      terra::writeRaster(
+        sum_occupancy,
+        filename = output_file,
+        overwrite = overwrite
+      )
+
+      output_format <- "GeoTIFF"
+    } else if (inherits(sum_occupancy, "sf")) {
+      output_file <- file.path(
+        output_dir,
+        "expected_richness.parquet"
+      )
+
+      sfarrow::st_write_parquet(
+        obj = sum_occupancy,
+        dsn = output_file,
+        compression = "snappy"
+      )
+
+      output_format <- "GeoParquet"
+    } else {
+      output_file <- file.path(
+        output_dir,
+        "expected_richness.rds"
+      )
+
+      saveRDS(
+        sum_occupancy,
+        output_file
+      )
+
+      output_format <- "RDS"
     }
 
-    save_object(
-      sum_occupancy,
-      "expected_richness"
-    )
+    # ----------------------------------------------------------
+    # Metadata
+    # ----------------------------------------------------------
 
     metadata <- list(
       title = "Multispecies ecosystem richness from occupancy predictions",
+
       description = paste(
-        "Cell-wise aggregation of species-specific occupancy predictions.",
-        "For each species, mean, median, lower, and upper occupancy",
-        "prediction layers are summed across species to produce a",
-        "multispecies expected richness surface."
+        "Species-specific occupancy predictions were aggregated",
+        "across species by summing mean, median, lower, and upper",
+        "prediction values at each prediction location."
       ),
+
       created = as.character(Sys.time()),
 
       ecosystem_type = ecosystem_type,
+
+      method = method,
 
       input_dir = normalizePath(
         input_dir,
@@ -294,95 +634,72 @@ calculate_ecosystem_richness <- function(
       ),
 
       n_species = length(results),
-      species = names(results),
-      species_columns = safe_name(names(results)),
 
-      prediction_layers = c(
-        "mean",
-        "median",
-        "lower",
-        "upper"
-      ),
+      species = names(results),
+
+      prediction_layers = required_layers,
 
       aggregation = list(
-        method = "cell-wise sum across species",
-        mean = "sum of species-specific mean occupancy predictions",
-        median = "sum of species-specific median occupancy predictions",
-        lower = "sum of species-specific lower occupancy predictions",
-        upper = "sum of species-specific upper occupancy predictions"
+        method = "sum across species",
+        mean = "sum of species-specific mean predictions",
+        median = "sum of species-specific median predictions",
+        lower = "sum of species-specific lower predictions",
+        upper = "sum of species-specific upper predictions"
       ),
 
       output = list(
-        filename = "expected_richness.tif",
-        format = "GeoTIFF",
-        layers = c(
-          "mean",
-          "median",
-          "lower",
-          "upper"
-        ),
-        interpretation = list(
-          mean = "Expected multispecies richness",
-          median = "Sum of species-specific median occupancy predictions",
-          lower = "Sum of species-specific lower occupancy predictions",
-          upper = "Sum of species-specific upper occupancy predictions"
-        )
+        filename = basename(output_file),
+        format = output_format,
+        layers = required_layers
       ),
 
       uncertainty_note = paste(
-        "Lower and upper layers are sums of species-specific marginal",
-        "uncertainty bounds and are not equivalent to posterior credible",
-        "intervals for the multispecies sum unless posterior samples are",
-        "aggregated before calculating quantiles."
-      ),
-
-      file_format_rules = list(
-        SpatRaster = "GeoTIFF",
-        other = "RDS"
-      ),
-
-      FAIR_notes = list(
-        findable = paste(
-          "Outputs use descriptive filenames and metadata containing",
-          "species names and processing information."
-        ),
-        accessible = paste(
-          "Raster outputs are provided as GeoTIFF and complete results",
-          "are serialized as RDS."
-        ),
-        interoperable = paste(
-          "Raster outputs preserve the coordinate reference system,",
-          "resolution, extent, and standard GeoTIFF structure."
-        ),
-        reusable = paste(
-          "Metadata records input locations, species, prediction layers,",
-          "aggregation method, parameters, software versions, and",
-          "uncertainty interpretation."
-        )
+        "The lower and upper layers are sums of species-specific",
+        "marginal uncertainty bounds. They are not equivalent to",
+        "a posterior credible interval for the multispecies sum",
+        "unless posterior samples are aggregated before calculating",
+        "the interval."
       ),
 
       software_versions = list(
         R = R.version.string,
-        sf = as.character(utils::packageVersion("sf")),
-        terra = as.character(utils::packageVersion("terra")),
-        dplyr = as.character(utils::packageVersion("dplyr")),
-        sfarrow = as.character(utils::packageVersion("sfarrow")),
-        jsonlite = as.character(utils::packageVersion("jsonlite"))
+        sf = if (requireNamespace("sf", quietly = TRUE)) {
+          as.character(utils::packageVersion("sf"))
+        },
+        terra = if (requireNamespace("terra", quietly = TRUE)) {
+          as.character(utils::packageVersion("terra"))
+        },
+        sfarrow = if (requireNamespace("sfarrow", quietly = TRUE)) {
+          as.character(utils::packageVersion("sfarrow"))
+        },
+        jsonlite = if (requireNamespace("jsonlite", quietly = TRUE)) {
+          as.character(utils::packageVersion("jsonlite"))
+        }
       )
     )
 
     jsonlite::write_json(
       metadata,
-      path = file.path(output_dir, "metadata.json"),
+      path = file.path(
+        output_dir,
+        "metadata.json"
+      ),
       pretty = TRUE,
       auto_unbox = TRUE
     )
 
     saveRDS(
       output,
-      file = file.path(output_dir, "all_results.rds")
+      file = file.path(
+        output_dir,
+        "all_results.rds"
+      )
     )
   }
+
+  # ============================================================
+  # 11. Return
+  # ============================================================
 
   output
 }

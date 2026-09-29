@@ -1,37 +1,3 @@
-#' Calculate Scaled Ecosystem Richness Using Expert Reference Data
-#'
-#' Calculates multispecies expected richness from species prediction outputs,
-#' scales richness against an expert-derived reference value, and optionally
-#' estimates representative regional values using bootstrap beta regression.
-#'
-#' @param input_dir Character. Directory containing species prediction outputs.
-#'   Each species should have a subdirectory containing a `.tif` or `.parquet`
-#'   prediction file.
-#' @param reference_data Data frame containing expert reference values.
-#'   Must contain columns `Species` and `Values`.
-#' @param categorisation_shape An `sf` object containing the regions used for
-#'   regional summaries.
-#' @param ecosystem_type Character. Ecosystem type passed to
-#'   `calculate_ecosystem_richness()`.
-#' @param value_col Character. Prediction layer used to calculate expected
-#'   richness. Default is `"mean"`.
-#' @param point_spacing Numeric. Sampling spacing in metres.
-#' @param region_col Character. Region column name. Default is
-#'   `"nature_region"`.
-#' @param output_dir Character or NULL. Directory for outputs.
-#' @param save_outputs Logical. Save results to disk?
-#' @param overwrite Logical. Overwrite existing files?
-#' @param rep_values_for_each_region Logical. Estimate representative values
-#'   for each region using bootstrap beta regression?
-#' @param n.boot Integer. Number of bootstrap iterations.
-#' @param boot.seed Integer. Random seed for bootstrap.
-#' @param n.Samps Integer. Maximum number of raster cells sampled per
-#'   bootstrap replicate.
-#'
-#' @return A named list containing the species predictions, expected richness,
-#'   scaled indicator, regional raster, and bootstrap summaries.
-#'
-#' @export
 calculate_scaled_ecosystem_richness_with_expert_data <- function(
   input_dir,
   reference_data,
@@ -46,11 +12,12 @@ calculate_scaled_ecosystem_richness_with_expert_data <- function(
   rep_values_for_each_region = TRUE,
   n.boot = 5000,
   boot.seed = 123,
-  n.Samps = 5000
+  n.Samps = 5000,
+  method = "rds"
 ) {
-  # --------------------------------------------------------------------------
+  # ============================================================
   # 1. Validate inputs
-  # --------------------------------------------------------------------------
+  # ============================================================
 
   if (!is.data.frame(reference_data)) {
     stop(
@@ -66,17 +33,64 @@ calculate_scaled_ecosystem_richness_with_expert_data <- function(
     )
   }
 
-  if (!dir.exists(input_dir)) {
+  if (!method %in% c("raster", "sf", "rds")) {
     stop(
-      "`input_dir` does not exist: ",
-      input_dir,
+      "`method` must be one of: 'raster', 'sf', or 'rds'.",
+      call. = FALSE
+    )
+  }
+
+  if (length(input_dir) == 0) {
+    stop(
+      "`input_dir` contains no paths.",
+      call. = FALSE
+    )
+  }
+
+  missing_dirs <- input_dir[!dir.exists(input_dir)]
+
+  if (length(missing_dirs) > 0) {
+    stop(
+      "The following input directories do not exist:\n",
+      paste(missing_dirs, collapse = "\n"),
+      call. = FALSE
+    )
+  }
+
+  if (!region_col %in% names(categorisation_shape)) {
+    stop(
+      "`region_col` ('",
+      region_col,
+      "') is not present in `categorisation_shape`.",
+      call. = FALSE
+    )
+  }
+
+  required_reference_cols <- c(
+    "Species",
+    "Values"
+  )
+
+  missing_reference_cols <- setdiff(
+    required_reference_cols,
+    names(reference_data)
+  )
+
+  if (length(missing_reference_cols) > 0) {
+    stop(
+      "Missing columns in `reference_data`: ",
+      paste(
+        missing_reference_cols,
+        collapse = ", "
+      ),
       call. = FALSE
     )
   }
 
   if (save_outputs && is.null(output_dir)) {
     stop(
-      "`output_dir` must be supplied when `save_outputs = TRUE`.",
+      "`output_dir` must be supplied when ",
+      "`save_outputs = TRUE`.",
       call. = FALSE
     )
   }
@@ -89,53 +103,33 @@ calculate_scaled_ecosystem_richness_with_expert_data <- function(
     )
   }
 
-  # Required columns in expert reference data
-  required_reference_cols <- c("Species", "Values")
-
-  missing_reference_cols <- setdiff(
-    required_reference_cols,
-    names(reference_data)
-  )
-
-  if (length(missing_reference_cols) > 0) {
-    stop(
-      "Missing columns in `reference_data`: ",
-      paste(missing_reference_cols, collapse = ", "),
-      call. = FALSE
-    )
-  }
-
-  # Required region column
-  if (!region_col %in% names(categorisation_shape)) {
-    stop(
-      "`region_col` ('",
-      region_col,
-      "') is not present in `categorisation_shape`.",
-      call. = FALSE
-    )
-  }
-
-  # --------------------------------------------------------------------------
+  # ============================================================
   # 2. Calculate multispecies expected richness
-  # --------------------------------------------------------------------------
+  # ============================================================
 
-  cat("\nCalculating multispecies expected richness...\n")
-
-  multispecies_richness <- calculate_ecosystem_richness(
-    input_dir = input_dir,
-    ecosystem_type = ecosystem_type,
-    value_col = value_col,
-    na.rm = TRUE,
-    output_dir = if (save_outputs) {
-      file.path(output_dir, "expected_richness")
-    } else {
-      NULL
-    },
-    save_outputs = save_outputs,
-    overwrite = overwrite
+  cat(
+    "\nCalculating multispecies expected richness...\n"
   )
 
-  # Extract species results
+  multispecies_richness <-
+    calculate_ecosystem_richness(
+      input_dir = input_dir,
+      ecosystem_type = ecosystem_type,
+      value_col = value_col,
+      na.rm = TRUE,
+      output_dir = if (save_outputs) {
+        file.path(
+          output_dir,
+          "expected_richness"
+        )
+      } else {
+        NULL
+      },
+      save_outputs = save_outputs,
+      overwrite = overwrite,
+      method = method
+    )
+
   results <- multispecies_richness$results
 
   if (length(results) == 0) {
@@ -145,42 +139,66 @@ calculate_scaled_ecosystem_richness_with_expert_data <- function(
     )
   }
 
-  # --------------------------------------------------------------------------
-  # 3. Match expert species to modelled species
-  # --------------------------------------------------------------------------
+  # ============================================================
+  # 3. Match expert reference species
+  # ============================================================
 
-  cat("\nCalculating expert reference value...\n")
+  cat(
+    "\nCalculating expert reference value...\n"
+  )
 
-  species_cols <- safe_name(names(results))
+  model_species <- names(results)
 
   reference_data_filtered <- reference_data |>
     dplyr::mutate(
-      Species_col = gsub(
-        " ",
-        "_",
-        Species
+      Species_col = safe_name(
+        as.character(Species)
       )
     ) |>
     dplyr::filter(
-      Species_col %in% species_cols
+      Species_col %in% model_species
     )
 
   if (nrow(reference_data_filtered) == 0) {
     stop(
-      "None of the species in `reference_data` matched the modelled species.",
+      "None of the species in `reference_data` ",
+      "matched the modelled species.",
       call. = FALSE
     )
   }
 
-  # Check for species with missing expert values
-  if (any(!is.finite(reference_data_filtered$Values))) {
+  # Check values
+  if (
+    any(
+      !is.finite(
+        reference_data_filtered$Values
+      )
+    )
+  ) {
     stop(
-      "Expert reference values contain NA, NaN, Inf, or -Inf.",
+      "Expert reference values contain NA, NaN, ",
+      "Inf, or -Inf.",
       call. = FALSE
     )
   }
 
-  # Expert-derived reference richness
+  # Optional diagnostic for duplicate species
+  duplicate_species <- reference_data_filtered |>
+    dplyr::count(Species_col) |>
+    dplyr::filter(n > 1)
+
+  if (nrow(duplicate_species) > 0) {
+    warning(
+      "Multiple expert reference values were found for: ",
+      paste(
+        duplicate_species$Species_col,
+        collapse = ", "
+      ),
+      ". All matching values will be included in the sum.",
+      call. = FALSE
+    )
+  }
+
   reference_predictions <- sum(
     reference_data_filtered$Values,
     na.rm = TRUE
@@ -197,246 +215,375 @@ calculate_scaled_ecosystem_richness_with_expert_data <- function(
   }
 
   cat(
-    "Expert reference richness:",
+    "Expert reference richness: ",
     round(reference_predictions, 4),
-    "\n"
+    "\n",
+    sep = ""
   )
 
-  # --------------------------------------------------------------------------
+  # ============================================================
   # 4. Extract expected richness
-  # --------------------------------------------------------------------------
+  # ============================================================
 
-  expected_richness <- multispecies_richness$expected_richness
-
-  if (!inherits(expected_richness, "SpatRaster")) {
-    stop(
-      "`multispecies_richness$expected_richness` must be a SpatRaster.",
-      call. = FALSE
-    )
-  }
+  expected_richness <-
+    multispecies_richness$expected_richness
 
   if (!value_col %in% names(expected_richness)) {
     stop(
-      "Layer `",
+      "Layer/column `",
       value_col,
-      "` was not found in `expected_richness`.",
+      "` was not found in expected richness.",
       call. = FALSE
     )
   }
 
-  # --------------------------------------------------------------------------
-  # 5. Scale richness against expert reference
-  # --------------------------------------------------------------------------
+  # ============================================================
+  # 5. Scale expected richness
+  # ============================================================
 
-  cat("\nScaling richness against expert reference...\n")
-
-  scaled_richness <- (expected_richness[[value_col]] /
-    reference_predictions)
-
-  # Restrict to [0, 1]
-  scaled_richness <- terra::clamp(
-    scaled_richness,
-    lower = 0,
-    upper = 1,
-    values = TRUE
+  cat(
+    "\nScaling richness against expert reference...\n"
   )
 
-  # Give layers clear names
-  indicator_vals <- c(
-    expected_richness[[value_col]],
-    scaled_richness
-  )
+  if (inherits(expected_richness, "SpatRaster")) {
+    scaled_richness <-
+      expected_richness[[value_col]] /
+      reference_predictions
 
-  names(indicator_vals) <- c(
-    "indicator_vals",
-    "scaled_indicator"
-  )
+    scaled_richness <- terra::clamp(
+      scaled_richness,
+      lower = 0,
+      upper = 1,
+      values = TRUE
+    )
 
-  # --------------------------------------------------------------------------
-  # 6. Add biological/nature regions to raster
-  # --------------------------------------------------------------------------
+    indicator_vals <- c(
+      expected_richness[[value_col]],
+      scaled_richness
+    )
 
-  cat("\nRasterising regions...\n")
+    names(indicator_vals) <- c(
+      "indicator_vals",
+      "scaled_indicator"
+    )
+  } else if (inherits(expected_richness, "sf")) {
+    expected_richness$scaled_indicator <-
+      expected_richness[[value_col]] /
+      reference_predictions
 
-  regions_vect <- terra::vect(categorisation_shape)
+    expected_richness$scaled_indicator <-
+      pmin(
+        pmax(
+          expected_richness$scaled_indicator,
+          0
+        ),
+        1
+      )
 
-  # Numeric ID for each region
-  regions_vect$region_id <- seq_len(
-    nrow(regions_vect)
-  )
+    indicator_vals <- expected_richness[
+      c(
+        value_col,
+        "scaled_indicator",
+        attr(
+          expected_richness,
+          "sf_column"
+        )
+      )
+    ]
 
-  # Rasterise using same grid as indicator
-  region_raster <- terra::rasterize(
-    regions_vect,
-    indicator_vals[[1]],
-    field = "region_id"
-  )
+    names(indicator_vals)[
+      names(indicator_vals) == value_col
+    ] <- "indicator_vals"
+  } else {
+    stop(
+      "`expected_richness` must be either a ",
+      "SpatRaster or sf object.",
+      call. = FALSE
+    )
+  }
 
-  # Add region names as factor levels
-  region_levels <- data.frame(
-    ID = seq_len(nrow(regions_vect)),
-    nature_region = as.character(
-      regions_vect[[region_col]]
+  # ============================================================
+  # 6. Assign biological/nature regions
+  # ============================================================
+
+  region_names <- unique(
+    as.character(
+      categorisation_shape[[region_col]]
     )
   )
 
-  levels(region_raster) <- region_levels
+  region_names <- region_names[
+    !is.na(region_names)
+  ]
 
-  names(region_raster) <- "bio_region"
+  if (inherits(indicator_vals, "SpatRaster")) {
+    cat(
+      "\nRasterising regions...\n"
+    )
 
-  # Add region raster
-  indicator_vals <- c(
-    indicator_vals,
-    region_raster
-  )
+    regions_vect <- terra::vect(
+      categorisation_shape
+    )
 
-  # --------------------------------------------------------------------------
-  # 7. Bootstrap representative values for regions
-  # --------------------------------------------------------------------------
+    regions_vect$region_id <-
+      seq_len(nrow(regions_vect))
+
+    region_raster <- terra::rasterize(
+      regions_vect,
+      indicator_vals[[1]],
+      field = "region_id"
+    )
+
+    region_levels <- data.frame(
+      ID = seq_len(
+        nrow(regions_vect)
+      ),
+      bio_region = as.character(
+        regions_vect[[region_col]]
+      )
+    )
+
+    levels(region_raster) <-
+      region_levels
+
+    names(region_raster) <-
+      "bio_region"
+
+    indicator_vals <- c(
+      indicator_vals,
+      region_raster
+    )
+  } else {
+    cat(
+      "\nAssigning regions to prediction points...\n"
+    )
+
+    regions_sf <- categorisation_shape[
+      c(
+        region_col,
+        attr(
+          categorisation_shape,
+          "sf_column"
+        )
+      )
+    ]
+
+    names(regions_sf)[
+      names(regions_sf) == region_col
+    ] <- "bio_region"
+
+    indicator_vals <- sf::st_join(
+      indicator_vals,
+      regions_sf,
+      join = sf::st_within,
+      left = TRUE
+    )
+  }
+
+  # ============================================================
+  # 7. Estimate representative regional values
+  # ============================================================
 
   representative_indicator_vals <- NULL
 
   if (rep_values_for_each_region) {
-    cat("\nEstimating representative values for each region...\n")
-
-    # Helper for extracting one region
-    extract_region_values <- function(
-      indicator_vals,
-      regions,
-      region,
-      region_col
-    ) {
-      region_shape <- regions[
-        as.character(regions[[region_col]]) == region,
-        ,
-        drop = FALSE
-      ]
-
-      if (nrow(region_shape) == 0) {
-        stop(
-          "Region not found: ",
-          region,
-          call. = FALSE
-        )
-      }
-
-      terra::extract(
-        indicator_vals,
-        terra::vect(region_shape)
-      )
-    }
-
-    # Unique region names
-    region_names <- unique(
-      as.character(categorisation_shape[[region_col]])
+    cat(
+      "\nEstimating representative values for each region...\n"
     )
-
-    region_names <- region_names[
-      !is.na(region_names)
-    ]
 
     regions_for_study <- c(
       "National",
       region_names
     )
 
-    # ------------------------------------------------------------------------
-    # Bootstrap each region
-    # ------------------------------------------------------------------------
+    # ----------------------------------------------------------
+    # Helper for one region
+    # ----------------------------------------------------------
 
-    representative_indicator_vals <- lapply(
-      regions_for_study,
-      function(region) {
-        cat(
-          "\n----------------------------------------\n"
+    bootstrap_region <- function(
+      values,
+      region
+    ) {
+      values <- values[
+        is.finite(values)
+      ]
+
+      if (length(values) == 0) {
+        warning(
+          "No valid scaled indicator values for region: ",
+          region
         )
 
-        cat(
-          "Running bootstrap model for region: ",
-          region,
-          "\n",
-          sep = ""
+        return(
+          data.frame(
+            mean = NA_real_,
+            median = NA_real_,
+            lower = NA_real_,
+            upper = NA_real_,
+            sd = NA_real_,
+            n = 0,
+            region = region
+          )
         )
+      }
 
-        # --------------------------------------------------------------
-        # Extract raster values
-        # --------------------------------------------------------------
+      cat(
+        "  ",
+        region,
+        ": ",
+        length(values),
+        " valid values\n",
+        sep = ""
+      )
 
-        if (region == "National") {
-          selected_region_vals <- terra::extract(
-            indicator_vals,
-            terra::vect(categorisation_shape)
-          )
-        } else {
-          selected_region_vals <- extract_region_values(
-            indicator_vals = indicator_vals,
-            regions = categorisation_shape,
-            region = region,
-            region_col = region_col
-          )
-        }
+      bootstrap_data <- data.frame(
+        scaled_indicator = values
+      )
 
-        # Remove NA values
-        selected_region_vals <- selected_region_vals |>
-          dplyr::filter(
-            is.finite(scaled_indicator)
-          )
-
-        # Check sample size
-        if (nrow(selected_region_vals) == 0) {
-          warning(
-            "No valid scaled indicator values for region: ",
-            region
-          )
-
-          return(
-            data.frame(
-              mean = NA_real_,
-              median = NA_real_,
-              lower = NA_real_,
-              upper = NA_real_,
-              sd = NA_real_,
-              n = 0,
-              region = region
-            )
-          )
-        }
-
-        cat(
-          "Number of available cells: ",
-          nrow(selected_region_vals),
-          "\n",
-          sep = ""
-        )
-
-        # --------------------------------------------------------------
-        # Bootstrap beta regression
-        # --------------------------------------------------------------
-
-        summarised_vals <- bootstrap_beta_intercept(
-          data = selected_region_vals,
+      summarised_vals <-
+        bootstrap_beta_intercept(
+          data = bootstrap_data,
           value_col = "scaled_indicator",
           n_boot = n.boot,
           seed = boot.seed,
           nSamps = n.Samps
         )
 
-        # Add sample size and region
-        data.frame(
-          summarised_vals$summary
+      data.frame(
+        summarised_vals$summary
+      ) |>
+        dplyr::mutate(
+          n = summarised_vals$n,
+          region = region
+        )
+    }
+
+    # ==========================================================
+    # Raster
+    # ==========================================================
+
+    if (inherits(indicator_vals, "SpatRaster")) {
+      representative_indicator_vals <-
+        lapply(
+          regions_for_study,
+          function(region) {
+            cat(
+              "\n----------------------------------------\n",
+              "Region: ",
+              region,
+              "\n",
+              sep = ""
+            )
+
+            if (region == "National") {
+              selected <- terra::values(
+                indicator_vals[["scaled_indicator"]],
+                mat = FALSE
+              )
+            } else {
+              region_shape <-
+                categorisation_shape[
+                  as.character(
+                    categorisation_shape[[region_col]]
+                  ) ==
+                    region,
+                  ,
+                  drop = FALSE
+                ]
+
+              if (nrow(region_shape) == 0) {
+                stop(
+                  "Region not found: ",
+                  region,
+                  call. = FALSE
+                )
+              }
+
+              selected <- terra::extract(
+                indicator_vals[["scaled_indicator"]],
+                terra::vect(region_shape)
+              )[[2]]
+            }
+
+            bootstrap_region(
+              selected,
+              region
+            )
+          }
         ) |>
-          dplyr::mutate(
-            n = summarised_vals$n,
-            region = region
-          )
-      }
-    ) |>
-      dplyr::bind_rows()
+        dplyr::bind_rows()
+
+      # ==========================================================
+      # sf
+      # ==========================================================
+    } else {
+      # --------------------------------------------------------
+      # IMPORTANT:
+      # Do not repeatedly subset the full sf object.
+      #
+      # Extract only the two columns needed for bootstrap.
+      # This avoids copying geometry for every region.
+      # --------------------------------------------------------
+
+      regional_values <- indicator_vals |>
+        sf::st_drop_geometry() |>
+        dplyr::select(
+          scaled_indicator,
+          bio_region
+        )
+
+      # Remove invalid values once
+      regional_values <- regional_values[
+        is.finite(
+          regional_values$scaled_indicator
+        ),
+        ,
+        drop = FALSE
+      ]
+
+      # Split once by region
+      regional_values_split <- split(
+        regional_values$scaled_indicator,
+        regional_values$bio_region
+      )
+
+      representative_indicator_vals <-
+        lapply(
+          regions_for_study,
+          function(region) {
+            cat(
+              "\n----------------------------------------\n",
+              "Region: ",
+              region,
+              "\n",
+              sep = ""
+            )
+
+            if (region == "National") {
+              values <-
+                regional_values$scaled_indicator
+            } else {
+              values <-
+                regional_values_split[[region]]
+
+              if (is.null(values)) {
+                values <- numeric(0)
+              }
+            }
+
+            bootstrap_region(
+              values,
+              region
+            )
+          }
+        ) |>
+        dplyr::bind_rows()
+    }
   }
 
-  # --------------------------------------------------------------------------
-  # 8. Create output object
-  # --------------------------------------------------------------------------
+  # ============================================================
+  # 8. Create output
+  # ============================================================
 
   output <- list(
     results = results,
@@ -452,12 +599,14 @@ calculate_scaled_ecosystem_richness_with_expert_data <- function(
     representative_indicator_vals = representative_indicator_vals
   )
 
-  # --------------------------------------------------------------------------
+  # ============================================================
   # 9. Save outputs
-  # --------------------------------------------------------------------------
+  # ============================================================
 
   if (save_outputs) {
-    cat("\nSaving outputs...\n")
+    cat(
+      "\nSaving outputs...\n"
+    )
 
     save_object <- function(
       x,
@@ -469,7 +618,10 @@ calculate_scaled_ecosystem_richness_with_expert_data <- function(
           obj = x,
           dsn = file.path(
             dir,
-            paste0(filename_base, ".parquet")
+            paste0(
+              filename_base,
+              ".parquet"
+            )
           ),
           compression = "snappy"
         )
@@ -478,7 +630,10 @@ calculate_scaled_ecosystem_richness_with_expert_data <- function(
           x,
           filename = file.path(
             dir,
-            paste0(filename_base, ".tif")
+            paste0(
+              filename_base,
+              ".tif"
+            )
           ),
           overwrite = overwrite
         )
@@ -487,7 +642,10 @@ calculate_scaled_ecosystem_richness_with_expert_data <- function(
           x,
           file = file.path(
             dir,
-            paste0(filename_base, ".csv")
+            paste0(
+              filename_base,
+              ".csv"
+            )
           ),
           row.names = FALSE
         )
@@ -496,7 +654,10 @@ calculate_scaled_ecosystem_richness_with_expert_data <- function(
           x,
           file = file.path(
             dir,
-            paste0(filename_base, ".rds")
+            paste0(
+              filename_base,
+              ".rds"
+            )
           )
         )
       }
@@ -517,20 +678,17 @@ calculate_scaled_ecosystem_richness_with_expert_data <- function(
       "reference_data"
     )
 
-    if (!is.null(representative_indicator_vals)) {
+    if (
+      !is.null(
+        representative_indicator_vals
+      )
+    ) {
       save_object(
         representative_indicator_vals,
         "representative_indicator_vals"
       )
     }
 
-    # Save individual species results
-    species_output_dir <- file.path(
-      output_dir,
-      "species_results"
-    )
-
-    # Save complete object
     saveRDS(
       output,
       file = file.path(
@@ -540,9 +698,9 @@ calculate_scaled_ecosystem_richness_with_expert_data <- function(
     )
   }
 
-  # --------------------------------------------------------------------------
+  # ============================================================
   # 10. Return
-  # --------------------------------------------------------------------------
+  # ============================================================
 
   output
 }

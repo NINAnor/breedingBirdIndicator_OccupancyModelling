@@ -182,7 +182,7 @@ invisible(lapply(function_files, source))
 ################################################################################
 
 # Ecosystem to model.
-ecosystemType <- "Forest" # Options: "Forest", "Mountain"
+ecosystemType <- "Mountain" # Options: "Forest", "Mountain"
 
 # Version label used in output folder names.
 # For testing, I use version 1 for route ID effect, and version 2 withour ruote ID
@@ -334,7 +334,7 @@ path_to_indicators <- file.path(
 # if runPostprocessing, specify whether you are interested in comparing all outputs from
 # the various models within the same ecosystem or that you are just interested in postprocessing
 # for the current configurations
-compareMultipleOutputs <- FALSE
+compareMultipleOutputs <- TRUE
 
 if (!compareMultipleOutputs) {
   path_to_postProcessing <- file.path(

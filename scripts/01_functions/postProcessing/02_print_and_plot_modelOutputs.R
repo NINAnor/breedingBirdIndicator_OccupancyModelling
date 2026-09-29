@@ -187,7 +187,8 @@ print.model_outputs <- function(x, ...) {
 plot.model_outputs <- function(
   object,
   type = c("error", "violin", "rank"),
-  components = NULL
+  components = NULL,
+  best_models = NULL
 ) {
   type <- match.arg(type)
 
@@ -302,6 +303,14 @@ plot.model_outputs <- function(
     color_scale <- ggplot2::scale_color_brewer(palette = "Set1")
   } else {
     color_scale <- ggplot2::scale_color_manual(values = "black")
+  }
+
+  if (!is.null(best_models)) {
+    df <- df %>%
+      dplyr::semi_join(
+        best_models,
+        by = c("path", "single_species", "spatial")
+      )
   }
 
   # ============================================================

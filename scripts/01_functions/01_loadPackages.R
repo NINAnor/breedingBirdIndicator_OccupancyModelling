@@ -21,16 +21,16 @@ installedPackages <- installed.packages()
 ###############################################################################
 
 necessaryPackages <- c(
-  "RPostgreSQL",  # Legacy PostgreSQL database connectivity
-  "RPostgres",    # Modern PostgreSQL database connectivity
-  "odbc",         # ODBC database connections
-  "DBI",          # Database interface used by PostgreSQL and ODBC packages
-  "rpostgis",     # Functions for working with PostGIS spatial databases
-  "lubridate",    # Date and time manipulation
-  "xtable",       # Export tables to HTML/LaTeX
-  "rmarkdown",    # Automated report generation
-  "tidyverse",    # Data manipulation, visualization, and analysis tools
-  "mapview",       # Interactive spatial mapping
+  "RPostgreSQL", # Legacy PostgreSQL database connectivity
+  "RPostgres", # Modern PostgreSQL database connectivity
+  "odbc", # ODBC database connections
+  "DBI", # Database interface used by PostgreSQL and ODBC packages
+  "rpostgis", # Functions for working with PostGIS spatial databases
+  "lubridate", # Date and time manipulation
+  "xtable", # Export tables to HTML/LaTeX
+  "rmarkdown", # Automated report generation
+  "tidyverse", # Data manipulation, visualization, and analysis tools
+  "mapview", # Interactive spatial mapping
   "sf",
   "arrow",
   "readxl",
@@ -45,7 +45,9 @@ necessaryPackages <- c(
   "sfarrow",
   "tidyterra",
   "purrr",
-  "ggplot2"
+  "ggplot2",
+  "magick",
+  "pdftools"
 )
 
 ###############################################################################
@@ -64,7 +66,6 @@ uninstalledPackages <- necessaryPackages[
 ###############################################################################
 
 if (length(uninstalledPackages) > 0) {
-
   message(
     "Installing missing packages:\n",
     paste(uninstalledPackages, collapse = ", ")
@@ -88,7 +89,6 @@ if (length(uninstalledPackages) > 0) {
 ###############################################################################
 
 load_required_packages <- function(pkgs) {
-
   # Check for any packages that still cannot be found
   missing_pkgs <- pkgs[
     !vapply(
@@ -101,7 +101,6 @@ load_required_packages <- function(pkgs) {
 
   # Stop execution if installation failed
   if (length(missing_pkgs) > 0) {
-
     stop(
       "The following packages could not be loaded:\n",
       paste(missing_pkgs, collapse = ", "),

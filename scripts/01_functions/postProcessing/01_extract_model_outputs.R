@@ -94,8 +94,21 @@ extract_model_outputs <- function(paths_to_results, modelChecks) {
           dplyr::mutate(Mean = bayesian_p) %>%
           dplyr::select(Species, Mean)
       )
+
+      # Add species names for the WAIC
+      if (is_single) {
+        species <- sub(".*spPGOcc_Forest_(.*?)\\.rds$", "\\1", f)
+      } else {
+        species <- NA
+      }
+
+      waic_vals <- tag(
+        as.data.frame(t(res$model_products$waic)) %>%
+          dplyr::mutate(Species = species)
+      )
     } else {
       bayes_P <- NA
+      waic_vals <- NA
     }
 
     beta_summary <- if (is_single) {
@@ -129,6 +142,7 @@ extract_model_outputs <- function(paths_to_results, modelChecks) {
       spatial = res$fit_spatial_model,
 
       bayes_P = bayes_P,
+      waic_vals = waic_vals,
       beta_summary = beta_summary,
       alpha_summary = alpha_summary,
       occ_effects = occ_effects,
@@ -150,6 +164,7 @@ extract_model_outputs <- function(paths_to_results, modelChecks) {
   # ------------------------------------------------------------
   output <- list(
     bayes_P = if (modelChecks) safe_bind(all_results, "bayes_P") else NA,
+    waic_vals = if (modelChecks) safe_bind(all_results, "waic_vals") else NA,
     beta_summary = safe_bind(all_results, "beta_summary"),
     alpha_summary = safe_bind(all_results, "alpha_summary"),
     occ_effects = safe_bind(all_results, "occ_effects"),

@@ -5,7 +5,8 @@ plot_occupancy_covariates <- function(
   ncol = 2,
   point_alpha = 0.2,
   point_size = 0.8,
-  se = TRUE
+  se = TRUE,
+  y_label = "Expected richness"
 ) {
   # ---------------------------------------------------------------------------
   # Check inputs
@@ -47,7 +48,7 @@ plot_occupancy_covariates <- function(
       values <- values[!is.na(values)]
 
       # Exactly two unique values = binary
-      if (length(unique(values)) == 2) {
+      if (length(unique(values)) <= 7) {
         "binary"
       } else {
         "continuous"
@@ -106,7 +107,7 @@ plot_occupancy_covariates <- function(
 
           ggplot2::labs(
             x = cov,
-            y = "Sum of mean occupancy"
+            y = y_label
           ) +
 
           ggplot2::theme_bw() +
@@ -134,14 +135,14 @@ plot_occupancy_covariates <- function(
           ) +
 
           ggplot2::geom_smooth(
-            method = "gam",
-            formula = y ~ s(x, bs = "cs"),
+            method = "loess",
+            #formula = y ~ s(x, bs = "cs"),
             se = se
           ) +
 
           ggplot2::labs(
             x = cov,
-            y = "Sum of mean occupancy"
+            y = y_label
           ) +
 
           ggplot2::theme_bw() +
