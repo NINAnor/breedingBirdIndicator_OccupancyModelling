@@ -131,7 +131,8 @@ if (compareMultipleOutputs) {
   ind_dir <- file.path(
     output_root,
     "indicators_outputs",
-    "compareMultipleOutputs"
+    "compareMultipleOutputs",
+    ecosystemType
   )
 
   dir.create(
@@ -196,7 +197,7 @@ if (compareMultipleOutputs) {
         output_dir = pp_for_indicators,
 
         # Keep your original comparison settings
-        n.boot = 1000,
+        n.boot = 100,
         n.Samps = 20000
       )
     }
@@ -214,7 +215,7 @@ if (compareMultipleOutputs) {
     output_dir = path_to_indicators,
 
     # Original standard-analysis settings
-    n.boot = 1000,
+    n.boot = 500,
     n.Samps = 20000
   )
 }

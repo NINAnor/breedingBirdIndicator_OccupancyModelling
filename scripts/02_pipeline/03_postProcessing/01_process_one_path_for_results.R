@@ -290,7 +290,9 @@ p_species_occ <- plot(
   outputs,
   type = "error",
   components = c("occ_effects"),
-  best_models = best_models
+  best_models = best_models,
+  covariate_names = covariateSelection,
+  n.cols = 3
 ) +
   ggplot2::labs(
     title = "Occupancy effects",
@@ -607,6 +609,7 @@ validationPlots <- lapply(
       ncol = 2,
       point_alpha = 0.2,
       point_size = 0.8,
+      covariate_names = covariateSelection,
       se = TRUE
     )
 

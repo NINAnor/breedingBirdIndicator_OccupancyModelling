@@ -97,7 +97,8 @@ extract_model_outputs <- function(paths_to_results, modelChecks) {
 
       # Add species names for the WAIC
       if (is_single) {
-        species <- sub(".*spPGOcc_Forest_(.*?)\\.rds$", "\\1", f)
+        #  species <- sub(".*spPGOcc_Forest_(.*?)\\.rds$", "\\1", f)
+        species <- sub(".*spPGOcc_(?:Forest|Mountain)_(.*?)\\.rds$", "\\1", f)
       } else {
         species <- NA
       }

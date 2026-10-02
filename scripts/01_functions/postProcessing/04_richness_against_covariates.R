@@ -6,7 +6,8 @@ plot_occupancy_covariates <- function(
   point_alpha = 0.2,
   point_size = 0.8,
   se = TRUE,
-  y_label = "Expected richness"
+  y_label = "Expected richness",
+  covariate_names = NULL
 ) {
   # ---------------------------------------------------------------------------
   # Check inputs
@@ -106,7 +107,13 @@ plot_occupancy_covariates <- function(
           ) +
 
           ggplot2::labs(
-            x = cov,
+            x = if (is.null(covariate_names)) {
+              cov
+            } else {
+              covariate_names$`Covariate definition`[
+                covariate_names$covariate == cov
+              ]
+            },
             y = y_label
           ) +
 
@@ -141,7 +148,13 @@ plot_occupancy_covariates <- function(
           ) +
 
           ggplot2::labs(
-            x = cov,
+            x = if (is.null(covariate_names)) {
+              cov
+            } else {
+              covariate_names$`Covariate definition`[
+                covariate_names$covariate == cov
+              ]
+            },
             y = y_label
           ) +
 

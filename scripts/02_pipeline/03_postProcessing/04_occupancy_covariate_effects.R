@@ -301,8 +301,12 @@ for (i in unique(best_models$single_species)) {
         point_alpha = 0.2,
         point_size = 0.8,
         se = TRUE,
-        y_label = "Occupancy probability"
-      )
+        y_label = "Occupancy probability",
+        covariate_names = covariateSelection
+      ) +
+        patchwork::plot_annotation(
+          title = x
+        )
 
       print(ret)
     }
@@ -395,10 +399,11 @@ for (i in unique(best_models$single_species)) {
           point_alpha = 0.2,
           point_size = 0.8,
           se = TRUE,
+          covariate_names = covariateSelection,
           y_label = "Occupancy probability"
         ) +
           patchwork::plot_annotation(
-            title = occupancy_col
+            title = x
           )
 
         print(ret)

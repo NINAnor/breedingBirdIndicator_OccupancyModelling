@@ -22,6 +22,7 @@ USER <- "kwaku" # options: all or kwaku or server or kwaku_parallel
 
 # If you are using the OneDrive, specify all. But if you are running on
 # your own local disk, specify youur woth USER in the 01_setPaths.R script
+
 version <- 1
 
 if (USER %in% c("server", "kwaku_parallel")) {
@@ -195,10 +196,10 @@ if (version == 2) {
 
 
 # Pipeline switches.
-fitModel <- TRUE
-runPredictions <- TRUE
+fitModel <- FALSE
+runPredictions <- FALSE
 runIndicators <- FALSE
-runPostprocessing <- FALSE
+runPostprocessing <- TRUE
 
 # Model type switches.
 fit_single_species <- FALSE # TRUE: PGOcc / spPGOcc per species
@@ -207,6 +208,7 @@ if (USER %in% c("server", "kwaku_parallel")) {
 }
 
 fit_spatial_model <- TRUE # TRUE: spatial NNGP model
+
 
 # Coordinate reference system used throughout the modelling workflow.
 modelCrs <- 25833
@@ -312,15 +314,15 @@ path_to_predictions <- file.path(
   spatial_dir
 )
 
-path_to_predictions <- file.path(
-  "../../ninaProjects/breedingBirdsModelOutput",
-  #output_root,
-  "prediction_outputs",
-  version_label,
-  ecosystemType,
-  species_dir,
-  spatial_dir
-)
+#path_to_predictions <- file.path(
+#  "../../ninaProjects/breedingBirdsModelOutput",
+#  #output_root,
+#  "prediction_outputs",
+#  version_label,
+#  ecosystemType,
+#  species_dir,
+#  spatial_dir
+#)
 
 path_to_indicators <- file.path(
   output_root,

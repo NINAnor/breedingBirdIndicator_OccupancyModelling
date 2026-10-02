@@ -6,6 +6,7 @@ if (!file.exists(file.path(path_to_postProcessing, "model_outputs.RData"))) {
   if (!compareMultipleOutputs) {
     outputs <- extract_model_outputs(path_to_results, modelChecks)
   } else {
+    # If compare multiple outputs, load all the files for the ecosystem
     paths_df <- build_model_paths(
       output_root = output_root,
       version_labels = paste0("version_0", 1:2),
