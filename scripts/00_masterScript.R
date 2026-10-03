@@ -183,7 +183,7 @@ invisible(lapply(function_files, source))
 ################################################################################
 
 # Ecosystem to model.
-ecosystemType <- "Mountain" # Options: "Forest", "Mountain"
+ecosystemType <- "Forest" # Options: "Forest", "Mountain"
 
 # Version label used in output folder names.
 # For testing, I use version 1 for route ID effect, and version 2 withour ruote ID

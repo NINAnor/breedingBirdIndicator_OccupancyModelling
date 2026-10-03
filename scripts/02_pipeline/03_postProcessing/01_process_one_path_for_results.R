@@ -487,13 +487,24 @@ if (compareMultipleOutputs) {
 # Keep only expected-richness result files
 # -----------------------------------------------------------------------------
 
+#exp_rds_files <- rds_files[
+#  grepl(
+#    "[/\\\\]expected_richness[/\\\\]all_results\\.rds$",
+#    rds_files
+#  )
+#]
+
 exp_rds_files <- rds_files[
   grepl(
-    "[/\\\\]expected_richness[/\\\\]all_results\\.rds$",
-    rds_files
+    paste0(
+      "[/\\\\]",
+      ecosystemType,
+      "[/\\\\].*[/\\\\]expected_richness[/\\\\]all_results\\.rds$"
+    ),
+    rds_files,
+    ignore.case = TRUE
   )
 ]
-
 
 # -----------------------------------------------------------------------------
 # Load expected-richness results
@@ -652,6 +663,17 @@ validationPlots <- lapply(
 # -----------------------------------------------------------------------------
 
 if (compareMultipleOutputs) {
+  #parquet_files <- list.files(
+  # file.path(
+  #  output_root,
+  #  "indicators_outputs",
+  #  "compareMultipleOutputs"
+  #),
+  #pattern = "\\.parquet$",
+  #full.names = TRUE,
+  #recursive = TRUE
+  #)
+
   parquet_files <- list.files(
     file.path(
       output_root,
@@ -662,6 +684,14 @@ if (compareMultipleOutputs) {
     full.names = TRUE,
     recursive = TRUE
   )
+
+  parquet_files <- parquet_files[
+    grepl(
+      paste0("[/\\\\]", ecosystemType, "[/\\\\]"),
+      parquet_files,
+      ignore.case = TRUE
+    )
+  ]
 } else {
   parquet_files <- list.files(
     file.path(
