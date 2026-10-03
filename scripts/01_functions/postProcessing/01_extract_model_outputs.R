@@ -46,9 +46,7 @@
 #' @importFrom purrr map compact map_chr map_lgl
 #'
 #' @export
-extract_model_outputs <- function(paths_to_results,
-                                  modelChecks) {
-
+extract_model_outputs <- function(paths_to_results, modelChecks) {
   # ------------------------------------------------------------
   # 1. Expand directories into files
   # ------------------------------------------------------------
@@ -61,10 +59,11 @@ extract_model_outputs <- function(paths_to_results,
   # 2. Process each file
   # ------------------------------------------------------------
   all_results <- purrr::map(result_files, function(f) {
-
     res <- readRDS(f)
 
-    if (is.null(res$model_products)) return(NULL)
+    if (is.null(res$model_products)) {
+      return(NULL)
+    }
 
     is_single <- isTRUE(res$single_species)
     run_path <- dirname(f)
@@ -74,7 +73,9 @@ extract_model_outputs <- function(paths_to_results,
     # helper: attach metadata to any table
     # ------------------------------------------------------------
     tag <- function(df) {
-      if (is.null(df) || nrow(df) == 0) return(NULL)
+      if (is.null(df) || nrow(df) == 0) {
+        return(NULL)
+      }
 
       df$file <- run_file
       df$path <- run_path
@@ -87,15 +88,29 @@ extract_model_outputs <- function(paths_to_results,
     # ------------------------------------------------------------
     # 3. Extract tables safely
     # ------------------------------------------------------------
-if(modelChecks){
-    bayes_P <- tag(
-      res$model_products$ppc_species %>%
-        dplyr::mutate(Mean = bayesian_p) %>%
-        dplyr::select(Species, Mean)
-    )
-} else {
-  bayes_P <- NA
-}
+    if (modelChecks) {
+      bayes_P <- tag(
+        res$model_products$ppc_species %>%
+          dplyr::mutate(Mean = bayesian_p) %>%
+          dplyr::select(Species, Mean)
+      )
+
+      # Add species names for the WAIC
+      if (is_single) {
+        #  species <- sub(".*spPGOcc_Forest_(.*?)\\.rds$", "\\1", f)
+        species <- sub(".*spPGOcc_(?:Forest|Mountain)_(.*?)\\.rds$", "\\1", f)
+      } else {
+        species <- NA
+      }
+
+      waic_vals <- tag(
+        as.data.frame(t(res$model_products$waic)) %>%
+          dplyr::mutate(Species = species)
+      )
+    } else {
+      bayes_P <- NA
+      waic_vals <- NA
+    }
 
     beta_summary <- if (is_single) {
       tag(res$model_products$beta_summary)
@@ -128,6 +143,7 @@ if(modelChecks){
       spatial = res$fit_spatial_model,
 
       bayes_P = bayes_P,
+      waic_vals = waic_vals,
       beta_summary = beta_summary,
       alpha_summary = alpha_summary,
       occ_effects = occ_effects,
@@ -148,7 +164,8 @@ if(modelChecks){
   # 6. Final output
   # ------------------------------------------------------------
   output <- list(
-    bayes_P = if(modelChecks) safe_bind(all_results, "bayes_P") else NA,
+    bayes_P = if (modelChecks) safe_bind(all_results, "bayes_P") else NA,
+    waic_vals = if (modelChecks) safe_bind(all_results, "waic_vals") else NA,
     beta_summary = safe_bind(all_results, "beta_summary"),
     alpha_summary = safe_bind(all_results, "alpha_summary"),
     occ_effects = safe_bind(all_results, "occ_effects"),

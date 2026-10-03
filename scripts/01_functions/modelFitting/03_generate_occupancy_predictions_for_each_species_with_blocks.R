@@ -30,26 +30,25 @@
 #'
 #' @export
 generate_occupancy_predictions_for_each_species_with_blocks <- function(
-    input_dir,
-    prediction_points,
-    det_covariates,
-    occ_covariates,
-    base_raster = NULL,
-    model_crs,
-    ecosystem_type,
-    output_dir,
-    return = c("sf", "raster"),
-    probs = c(0.025, 0.975),
-    use_route_random_effect = FALSE,
-    ignore_RE = TRUE,
-    save_plots = TRUE,
-    verbose = FALSE,
-    plot_width = 8,
-    plot_height = 6,
-    plot_dpi = 300,
-    block_size = 5000
+  input_dir,
+  prediction_points,
+  det_covariates,
+  occ_covariates,
+  base_raster = NULL,
+  model_crs,
+  ecosystem_type,
+  output_dir,
+  return = c("sf", "raster"),
+  probs = c(0.025, 0.975),
+  use_route_random_effect = FALSE,
+  ignore_RE = TRUE,
+  save_plots = TRUE,
+  verbose = FALSE,
+  plot_width = 8,
+  plot_height = 6,
+  plot_dpi = 300,
+  block_size = 5000
 ) {
-
   # ========================================================================
   # 1. Validate inputs
   # ========================================================================
@@ -57,7 +56,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
   return <- match.arg(return)
 
   if (!dir.exists(input_dir)) {
-
     stop(
       "`input_dir` does not exist or is not a directory: ",
       input_dir,
@@ -66,7 +64,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
   }
 
   if (return == "raster" && is.null(base_raster)) {
-
     stop(
       "`base_raster` must be supplied when ",
       "`return = 'raster'`.",
@@ -76,11 +73,10 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
 
   if (
     length(block_size) != 1L ||
-    !is.numeric(block_size) ||
-    is.na(block_size) ||
-    block_size < 1
+      !is.numeric(block_size) ||
+      is.na(block_size) ||
+      block_size < 1
   ) {
-
     stop(
       "`block_size` must be a positive integer.",
       call. = FALSE
@@ -101,7 +97,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
     mustWork = FALSE
   )
 
-
   # ========================================================================
   # 2. Find fitted model files
   # ========================================================================
@@ -114,13 +109,11 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
   )
 
   if (length(rds_files) == 0) {
-
     stop(
       "No .rds files found in `input_dir`.",
       call. = FALSE
     )
   }
-
 
   # ========================================================================
   # 3. Prepare prediction data
@@ -135,19 +128,16 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
       stats::complete.cases(.)
     )
 
-
   # ------------------------------------------------------------------------
   # Route random effect
   # ------------------------------------------------------------------------
 
   if (use_route_random_effect) {
-
     prediction_points <- prediction_points %>%
       dplyr::mutate(
         route_id = 1
       )
   }
-
 
   # ------------------------------------------------------------------------
   # Temporal means
@@ -155,7 +145,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
 
   prediction_points <- prediction_points %>%
     dplyr::mutate(
-
       mean_temperature = rowMeans(
         dplyr::across(
           dplyr::matches(
@@ -174,17 +163,15 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         na.rm = TRUE
       ),
 
-
-  snowmelt = rowMeans(
-    dplyr::across(
-      dplyr::matches(
-        "^snowmelt_[0-9]{4}$"
+      snowmelt = rowMeans(
+        dplyr::across(
+          dplyr::matches(
+            "^snowmelt_[0-9]{4}$"
+          )
+        ),
+        na.rm = TRUE
       )
-    ),
-    na.rm = TRUE
-  )
-  )
-
+    )
 
   # ========================================================================
   # 4. Occupancy formula
@@ -201,7 +188,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
       occ_rhs
     )
   )
-
 
   # ========================================================================
   # 5. Prediction blocks
@@ -242,7 +228,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
     n_blocks
   )
 
-
   # ========================================================================
   # 6. Final results
   # ========================================================================
@@ -255,18 +240,15 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
 
   all_results <- list()
 
-
   # =========================================================================
   # 7. Loop over models
   # =========================================================================
 
   for (rds_file in rds_files) {
-
     cat(
       "\n",
       paste(
-        rep("=",
-            72),
+        rep("=", 72),
         collapse = ""
       ),
       "\n",
@@ -282,27 +264,23 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
 
     cat(
       paste(
-        rep("=",
-            72),
+        rep("=", 72),
         collapse = ""
       ),
       "\n",
       sep = ""
     )
 
-
     # ----------------------------------------------------------------------
     # Read model
     # ----------------------------------------------------------------------
 
     output <- tryCatch(
-
       readRDS(
         rds_file
       ),
 
       error = function(e) {
-
         stop(
           "Failed to read:\n",
           rds_file,
@@ -313,9 +291,7 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
       }
     )
 
-
     if (is.null(output$model_products$model)) {
-
       warning(
         "Skipping file without ",
         "`output$model_products$model`: ",
@@ -327,23 +303,19 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
       next
     }
 
-
     model <- output$model_products$model
-
 
     # ----------------------------------------------------------------------
     # Model metadata
     # ----------------------------------------------------------------------
 
     meta <- tryCatch(
-
       .resolve_model_meta(
         output,
         rds_file
       ),
 
       error = function(e) {
-
         warning(
           conditionMessage(e),
           "\nSkipping: ",
@@ -354,9 +326,7 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
       }
     )
 
-
     if (is.null(meta)) {
-
       rm(
         output,
         model
@@ -369,13 +339,11 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
       next
     }
 
-
     is_single <- meta$single_species
 
     sp_names <- meta$species_names
 
     x_names <- meta$x_names
-
 
     # ----------------------------------------------------------------------
     # Spatial model
@@ -386,13 +354,10 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         output$fit_spatial_model
       )
     ) {
-
       isTRUE(
         output$fit_spatial_model
       )
-
     } else {
-
       inherits(
         model,
         c(
@@ -402,18 +367,19 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
       )
     }
 
-
     cat(
       sprintf(
         "Model: %s | %s | %d species\n",
-        if (is_single)
+        if (is_single) {
           "single-species"
-        else
-          "multi-species",
-        if (is_spatial)
+        } else {
+          "multi-species"
+        },
+        if (is_spatial) {
           "spatial"
-        else
-          "non-spatial",
+        } else {
+          "non-spatial"
+        },
         length(sp_names)
       )
     )
@@ -427,7 +393,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
       "\n",
       sep = ""
     )
-
 
     # ======================================================================
     # 8. Check raw occupancy variables
@@ -443,7 +408,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
     )
 
     if (length(missing_vars) > 0) {
-
       stop(
         "Prediction data are missing variables required by the ",
         "occupancy formula for ",
@@ -456,7 +420,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         call. = FALSE
       )
     }
-
 
     # ======================================================================
     # 9. Preserve factor structure
@@ -473,9 +436,7 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
     ]
 
     if (length(factor_columns) > 0) {
-
       for (v in factor_columns) {
-
         prediction_points[[v]] <- factor(
           prediction_points[[v]],
           levels = levels(
@@ -484,7 +445,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         )
       }
     }
-
 
     # ======================================================================
     # 10. Block summary accumulator
@@ -498,13 +458,11 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
       sp_names
     )
 
-
     # =========================================================================
     # 11. Prediction blocks
     # =========================================================================
 
     for (b in seq_len(n_blocks)) {
-
       block_start <- block_starts[b]
 
       block_end <- min(
@@ -513,7 +471,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
       )
 
       block_idx <- block_start:block_end
-
 
       cat(
         sprintf(
@@ -535,7 +492,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         )
       )
 
-
       # =====================================================================
       # 11.1 Extract block
       # =====================================================================
@@ -546,20 +502,17 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         drop = FALSE
       ]
 
-
       # =====================================================================
       # 11.2 Construct model matrix
       # =====================================================================
 
       X_0 <- tryCatch(
-
         stats::model.matrix(
           occ_formula,
           data = prediction_block
         ),
 
         error = function(e) {
-
           stop(
             "Could not construct model.matrix() for block ",
             b,
@@ -572,7 +525,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         }
       )
 
-
       cat(
         "    Model matrix: ",
         nrow(X_0),
@@ -581,7 +533,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         "\n",
         sep = ""
       )
-
 
       # =====================================================================
       # 11.3 Add model columns absent from this block
@@ -603,7 +554,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
       )
 
       if (length(missing_cols) > 0) {
-
         cat(
           "    Adding missing model columns: ",
           paste(
@@ -615,28 +565,25 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         )
 
         for (col in missing_cols) {
-
           X_0[[col]] <- 0
         }
       }
-
 
       # =====================================================================
       # 11.4 Remove/reorder columns to exactly match fitted model
       # =====================================================================
 
-      X_0 <- X_0[
-        ,
+      X_0 <- X_0[,
         x_names,
         drop = FALSE
       ]
 
-
-      if (!identical(
-        colnames(X_0),
-        x_names
-      )) {
-
+      if (
+        !identical(
+          colnames(X_0),
+          x_names
+        )
+      ) {
         stop(
           "Prediction model matrix does not match fitted model ",
           "after alignment in block ",
@@ -646,14 +593,12 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         )
       }
 
-
       # =====================================================================
       # 11.5 Coordinates
       # =====================================================================
 
       coords_0_mat <- as.matrix(
-        prediction_block[
-          ,
+        prediction_block[,
           c(
             "long",
             "lat"
@@ -662,15 +607,13 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         ]
       )
 
-      coords_0_df <- prediction_block[
-        ,
+      coords_0_df <- prediction_block[,
         c(
           "long",
           "lat"
         ),
         drop = FALSE
       ]
-
 
       # =====================================================================
       # 11.6 Run prediction
@@ -681,7 +624,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
       )
 
       pred <- tryCatch(
-
         .run_predict(
           model = model,
           X_0 = X_0,
@@ -693,7 +635,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         ),
 
         error = function(e) {
-
           warning(
             "Prediction failed for ",
             basename(rds_file),
@@ -707,9 +648,7 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         }
       )
 
-
       if (is.null(pred)) {
-
         rm(
           prediction_block,
           X_0,
@@ -723,7 +662,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
 
         next
       }
-
 
       # =====================================================================
       # 11.7 Temporary output directory
@@ -759,7 +697,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         showWarnings = FALSE
       )
 
-
       # =====================================================================
       # 11.8 Summarize this block
       # =====================================================================
@@ -769,7 +706,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
       )
 
       block_results <- tryCatch(
-
         summarize_occupancy_predictions(
           pred = pred,
           coords = coords_0_df,
@@ -782,7 +718,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         ),
 
         error = function(e) {
-
           warning(
             "Could not summarize block ",
             b,
@@ -796,45 +731,39 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         }
       )
 
-
       # =====================================================================
       # 11.9 Keep summarized block results
       # =====================================================================
 
       if (!is.null(block_results)) {
-
         for (sp in sp_names) {
-
           sp_block <- dplyr::filter(
             block_results,
             species == sp
           )
 
           if (nrow(sp_block) > 0) {
-
             species_blocks[[sp]][[
               length(
                 species_blocks[[sp]]
-              ) + 1L
+              ) +
+                1L
             ]] <- sp_block
           }
         }
       }
-
 
       # =====================================================================
       # 11.10 Remove temporary block output
       # =====================================================================
 
       if (dir.exists(block_output_dir)) {
-
         unlink(
           block_output_dir,
           recursive = TRUE,
           force = TRUE
         )
       }
-
 
       # =====================================================================
       # 11.11 Release large objects immediately
@@ -854,7 +783,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
       )
     }
 
-
     # =========================================================================
     # 12. MERGE BLOCK PREDICTIONS AND SAVE
     # =========================================================================
@@ -865,13 +793,10 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
       "\n"
     )
 
-
     for (sp in sp_names) {
-
       sp_safe <- safe_name(
         sp
       )
-
 
       # ----------------------------------------------------------------------
       # Check for successful blocks
@@ -880,9 +805,9 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
       if (
         length(
           species_blocks[[sp]]
-        ) == 0
+        ) ==
+          0
       ) {
-
         warning(
           "No successful prediction blocks for species: ",
           sp
@@ -890,7 +815,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
 
         next
       }
-
 
       # ----------------------------------------------------------------------
       # Merge all summarized blocks
@@ -907,22 +831,21 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         sep = ""
       )
 
-
       sp_result <- do.call(
         rbind,
         species_blocks[[sp]]
       )
 
-
       # ----------------------------------------------------------------------
       # Rebuild geometry after rbind if necessary
       # ----------------------------------------------------------------------
 
-      if (!inherits(
-        sp_result,
-        "sf"
-      )) {
-
+      if (
+        !inherits(
+          sp_result,
+          "sf"
+        )
+      ) {
         sp_result <- sf::st_as_sf(
           sp_result,
           coords = c(
@@ -933,7 +856,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
           remove = FALSE
         )
       }
-
 
       # ----------------------------------------------------------------------
       # Order by location
@@ -946,7 +868,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         ,
         drop = FALSE
       ]
-
 
       # ----------------------------------------------------------------------
       # Final species directory
@@ -963,7 +884,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         showWarnings = FALSE
       )
 
-
       # =====================================================================
       # 12.1 Save merged SF / GeoParquet
       # =====================================================================
@@ -976,7 +896,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         )
       )
 
-
       cat(
         "  Saving merged predictions:\n",
         "  ",
@@ -985,13 +904,11 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         sep = ""
       )
 
-
       sfarrow::st_write_parquet(
         sp_result,
         merged_parquet,
         compression = "snappy"
       )
-
 
       # =====================================================================
       # 12.2 Save merged RDS
@@ -1007,12 +924,10 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         )
       )
 
-
       saveRDS(
         sp_result,
         merged_rds
       )
-
 
       cat(
         "  Merged predictions: ",
@@ -1024,13 +939,11 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         sep = ""
       )
 
-
       # =====================================================================
       # 12.3 Plot merged predictions
       # =====================================================================
 
       if (save_plots) {
-
         plot_dir <- file.path(
           species_output_dir,
           "plots"
@@ -1041,7 +954,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
           recursive = TRUE,
           showWarnings = FALSE
         )
-
 
         p <- ggplot2::ggplot(
           sp_result
@@ -1073,18 +985,19 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
             subtitle = paste0(
               ecosystem_type,
               " | ",
-              if (is_single)
+              if (is_single) {
                 "single-species"
-              else
-                "multi-species",
+              } else {
+                "multi-species"
+              },
               " | ",
-              if (is_spatial)
+              if (is_spatial) {
                 "spatial"
-              else
+              } else {
                 "non-spatial"
+              }
             )
           )
-
 
         plot_base <- file.path(
           plot_dir,
@@ -1093,7 +1006,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
             "_occupancy_probability"
           )
         )
-
 
         ggplot2::ggsave(
           filename = paste0(
@@ -1106,7 +1018,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
           dpi = plot_dpi
         )
 
-
         ggplot2::ggsave(
           filename = paste0(
             plot_base,
@@ -1118,13 +1029,11 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         )
       }
 
-
       # ----------------------------------------------------------------------
       # Store final merged result
       # ----------------------------------------------------------------------
 
       all_results[[sp]] <- sp_result
-
 
       # ----------------------------------------------------------------------
       # Release species block objects
@@ -1141,7 +1050,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
       )
     }
 
-
     # =========================================================================
     # 13. Clean model
     # =========================================================================
@@ -1157,13 +1065,11 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
     )
   }
 
-
   # =========================================================================
   # 14. Return merged SF results
   # =========================================================================
 
   if (return == "sf") {
-
     return(
       invisible(
         all_results
@@ -1171,33 +1077,29 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
     )
   }
 
-
   # =========================================================================
   # 15. Convert merged predictions to raster
   # =========================================================================
 
-  if (!inherits(
-    base_raster,
-    "terra::SpatRaster"
-  )) {
-
+  if (
+    !inherits(
+      base_raster,
+      "terra::SpatRaster"
+    )
+  ) {
     base_raster <- terra::rast(
       base_raster
     )
   }
 
-
   raster_results <- list()
 
-
   for (sp in names(all_results)) {
-
     sp_safe <- safe_name(
       sp
     )
 
     sp_sf <- all_results[[sp]]
-
 
     cat(
       "\nRasterizing merged predictions for: ",
@@ -1205,7 +1107,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
       "\n",
       sep = ""
     )
-
 
     # ----------------------------------------------------------------------
     # Rasterize summaries
@@ -1241,13 +1142,11 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
       field = "upper"
     )
 
-
     names(mean_raster) <- "mean"
     names(median_raster) <- "median"
     names(sd_raster) <- "sd"
     names(lower_raster) <- "lower"
     names(upper_raster) <- "upper"
-
 
     sp_raster <- c(
       mean_raster,
@@ -1256,7 +1155,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
       lower_raster,
       upper_raster
     )
-
 
     # ----------------------------------------------------------------------
     # Save raster
@@ -1267,7 +1165,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
       sp_safe
     )
 
-
     raster_file <- file.path(
       species_output_dir,
       paste0(
@@ -1275,7 +1172,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         "_occupancy_predictions.tif"
       )
     )
-
 
     terra::writeRaster(
       sp_raster,
@@ -1290,9 +1186,7 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
       )
     )
 
-
     raster_results[[sp]] <- sp_raster
-
 
     rm(
       sp_sf,
@@ -1308,7 +1202,6 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
       verbose = FALSE
     )
   }
-
 
   # =========================================================================
   # 16. Return raster results

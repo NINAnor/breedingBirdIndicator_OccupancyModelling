@@ -26,12 +26,11 @@
 #'
 #' @export
 get_slope <- function(
-    dem,
-    output_file,
-    metadata_file = NULL,
-    overwrite = FALSE
+  dem,
+  output_file,
+  metadata_file = NULL,
+  overwrite = FALSE
 ) {
-
   required_pkgs <- c("terra", "yaml")
 
   missing_pkgs <- required_pkgs[
@@ -59,7 +58,8 @@ get_slope <- function(
 
   if (terra::nlyr(dem) != 1L) {
     warning(
-      "`dem` contains ", terra::nlyr(dem),
+      "`dem` contains ",
+      terra::nlyr(dem),
       " layers. Using the first layer only.",
       call. = FALSE
     )
@@ -97,7 +97,8 @@ get_slope <- function(
   slope <- terra::terrain(
     dem,
     v = "slope",
-    unit = "degrees"
+    unit = "degrees",
+    neighbors = 8
   )
 
   names(slope) <- "slope_degrees"

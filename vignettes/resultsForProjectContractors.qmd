@@ -1,0 +1,28 @@
+---
+title: "Results for project contractors"
+author: "Kwaku Peprah Adjei"
+date: "2026-06-21"
+bibliography: references.bib
+crossref:
+  fig-title: Figure
+  tbl-title: Table
+  eq-title: Equation
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    theme: cosmo
+  docx:
+    toc: true
+    number-sections: true
+execute:
+  echo: TRUE
+  warning: false
+  message: false
+---
+
+# Introduction
+
+# Species specific effects
+

@@ -56,7 +56,6 @@
 #'
 #' @export
 print.model_outputs <- function(x, ...) {
-
   cat("\n<Model Outputs Object>\n")
   cat("----------------------\n\n")
 
@@ -68,8 +67,13 @@ print.model_outputs <- function(x, ...) {
 
   cat("Components:\n")
 
-  components <- c("bayes_P", "beta_summary", "alpha_summary",
-                  "occ_effects", "det_effects")
+  components <- c(
+    "bayes_P",
+    "beta_summary",
+    "alpha_summary",
+    "occ_effects",
+    "det_effects"
+  )
 
   for (comp in components) {
     if (!is.null(x[[comp]])) {
@@ -181,19 +185,22 @@ print.model_outputs <- function(x, ...) {
 #'
 #' }
 plot.model_outputs <- function(
-    object,
-    type = c("error", "violin", "rank"),
-    components = NULL
+  object,
+  type = c("error", "violin", "rank"),
+  components = NULL,
+  best_models = NULL,
+  covariate_names = NULL,
+  n.cols = 2
 ) {
-
   type <- match.arg(type)
 
   meta <- object$meta
   is_multi <- any(meta$single_species == FALSE)
 
-  # ------------------------------------------------------------
+  # ============================================================
   # 1. COMPONENTS
-  # ------------------------------------------------------------
+  # ============================================================
+
   available_components <- list(
     occ_effects = object$occ_effects,
     det_effects = object$det_effects,
@@ -209,38 +216,39 @@ plot.model_outputs <- function(
     components <- names(available_components)
   }
 
-  # ------------------------------------------------------------
-  # 2. BUILD DATAFRAME (FIXED PATH LOGIC)
-  # ------------------------------------------------------------
-
-
+  # ============================================================
+  # 2. BUILD DATAFRAME
+  # ============================================================
 
   df <- purrr::imap_dfr(
-        available_components[components],
-        function(d, name) {
+    available_components[components],
+    function(d, name) {
+      if (is.null(d) || nrow(d) == 0) {
+        return(NULL)
+      }
 
-          if (is.null(d) || nrow(d) == 0) return(NULL)
+      d$component <- name
 
-          d$component <- name
-
-          # CRITICAL: preserve run identity
-          #d$path <- run_path
-          d$run_label <- c(sapply(d$path, extract_run_label))
-
-          d
-        }
+      # Preserve run identity
+      d$run_label <- vapply(
+        d$path,
+        extract_run_label,
+        character(1)
       )
 
+      d
+    }
+  )
 
   if (is.null(df) || nrow(df) == 0) {
     stop("No data available for plotting")
   }
 
-  # ------------------------------------------------------------
+  # ============================================================
   # 3. STANDARDISE COLUMNS
-  # ------------------------------------------------------------
-  standardise <- function(df) {
+  # ============================================================
 
+  standardise <- function(df) {
     if ("Mean" %in% names(df) && !"estimate" %in% names(df)) {
       df$estimate <- df$Mean
     }
@@ -253,10 +261,19 @@ plot.model_outputs <- function(
       df$upper <- df$`97.5%.97.5%`
     }
 
-    required <- c("estimate", "lower", "upper", "covariate", "level", "Species")
+    required <- c(
+      "estimate",
+      "lower",
+      "upper",
+      "covariate",
+      "level",
+      "Species"
+    )
 
     for (col in required) {
-      if (!col %in% names(df)) df[[col]] <- NA
+      if (!col %in% names(df)) {
+        df[[col]] <- NA
+      }
     }
 
     df$estimate <- as.numeric(df$estimate)
@@ -268,151 +285,655 @@ plot.model_outputs <- function(
 
   df <- standardise(df)
 
-  # ------------------------------------------------------------
-  # 4. PATH LABEL (FIXED + SIMPLE)
-  # ------------------------------------------------------------
+  # ============================================================
+  # 4. RENAME COVARIATES
+  # ============================================================
+
+  if (!is.null(covariate_names)) {
+    df <- df %>%
+
+      dplyr::left_join(
+        covariate_names %>%
+          dplyr::select(
+            covariate,
+            `Covariate definition`
+          ),
+        by = "covariate"
+      ) %>%
+
+      dplyr::mutate(
+        covariate = `Covariate definition`
+      ) %>%
+
+      dplyr::select(
+        -`Covariate definition`
+      )
+  }
+
+  # ============================================================
+  # 5. PATH LABEL
+  # ============================================================
+
   df$path_label <- df$run_label
 
-  # Only collapse if truly single run
+  # Collapse label if there is only one run
   if (length(unique(df$path)) == 1) {
     df$path_label <- "run"
   }
 
   df$path_label <- factor(df$path_label)
 
-  # ------------------------------------------------------------
-  # 5. PARAMETER CONSTRUCTION
-  # ------------------------------------------------------------
+  # ============================================================
+  # 6. PARAMETER CONSTRUCTION
+  # ============================================================
+
   df$parameter <- dplyr::case_when(
-    !is.na(df$level) ~ paste0(df$covariate, " = ", df$level),
-    !is.na(df$covariate) ~ df$covariate,
-    TRUE ~ df$component
+    !is.na(df$level) ~
+      paste0(
+        df$covariate,
+        " = ",
+        df$level
+      ),
+
+    !is.na(df$covariate) ~
+      df$covariate,
+
+    TRUE ~
+      df$component
   )
 
-  # ------------------------------------------------------------
-  # 6. PATH LOGIC
-  # ------------------------------------------------------------
-  n_paths <- length(levels(df$path_label))
+  # ============================================================
+  # 7. PATH LOGIC
+  # ============================================================
+
+  n_paths <- length(
+    levels(df$path_label)
+  )
+
   use_colors <- n_paths > 1
   use_dodge <- n_paths > 1
 
-  pd <- ggplot2::position_dodge(width = 0.6)
+  pd <- ggplot2::position_dodge(
+    width = 0.6
+  )
 
+  # Colour scale
   if (use_colors) {
-    color_scale <- ggplot2::scale_color_brewer(palette = "Set1")
+    color_scale <- ggplot2::scale_color_brewer(
+      palette = "Set1"
+    )
   } else {
-    color_scale <- ggplot2::scale_color_manual(values = "black")
+    color_scale <- ggplot2::scale_color_manual(
+      values = "black"
+    )
+  }
+
+  # ============================================================
+  # 8. BEST MODELS
+  # ============================================================
+
+  if (!is.null(best_models)) {
+    df <- df %>%
+
+      dplyr::semi_join(
+        best_models,
+        by = c(
+          "path",
+          "single_species",
+          "spatial"
+        )
+      )
   }
 
   # ============================================================
   # ERROR PLOT
   # ============================================================
+
   if (type == "error") {
+    # ----------------------------------------------------------
+    # Determine whether this is a summary plot
+    # ----------------------------------------------------------
 
-    is_summary <- any(df$component %in% c("alpha_summary", "beta_summary"))
-
-    if(any(meta$single_species == TRUE) && is_summary){
-      df <- df %>%
-        filter(single_species == FALSE)
-    }
-
-    facet_formula <- if (is_summary) {
-      stats::as.formula("~ component")
-    } else {
-      stats::as.formula("component ~ parameter")
-    }
-
-    y_var <- if (is_summary) "covariate" else "Species"
-
-    p <- ggplot2::ggplot(df, ggplot2::aes(
-      y = .data[[y_var]],
-      x = estimate,
-      color = path_label,
-      group = interaction(path_label, Species)
-    ))
-
-    if (use_dodge) {
-      p <- p +
-        ggplot2::geom_point(position = pd) +
-        ggplot2::geom_errorbarh(
-          ggplot2::aes(xmin = lower, xmax = upper),
-          position = pd,
-          height = 0.2
+    is_summary <- any(
+      df$component %in%
+        c(
+          "alpha_summary",
+          "beta_summary"
         )
-    } else {
-      p <- p +
-        ggplot2::geom_point() +
-        ggplot2::geom_errorbarh(
-          ggplot2::aes(xmin = lower, xmax = upper),
-          height = 0.2,
-          color = "black"
-        )
-    }
-
-    return(
-      p +
-        ggplot2::facet_grid(facet_formula) +
-        color_scale +
-        ggplot2::labs(
-          y = if (is_summary) "Covariate" else "Species",
-          x = "Posterior mean (95% CI)",
-          color = if (use_colors) "Run" else NULL
-        ) +
-        ggplot2::guides(color = if (use_colors) "legend" else "none")
     )
+
+    # ----------------------------------------------------------
+    # Remove single-species models from summary plots
+    # ----------------------------------------------------------
+
+    if (
+      any(meta$single_species == TRUE) &&
+        is_summary
+    ) {
+      df <- df %>%
+
+        dplyr::filter(
+          single_species == FALSE
+        )
+    }
+
+    # ----------------------------------------------------------
+    # Variables used for plotting
+    # ----------------------------------------------------------
+
+    y_var <- if (is_summary) {
+      "covariate"
+    } else {
+      "Species"
+    }
+
+    facet_var <- if (is_summary) {
+      "component"
+    } else {
+      "parameter"
+    }
+
+    # ----------------------------------------------------------
+    # Species ordering
+    # ----------------------------------------------------------
+
+    if (!is_summary) {
+      species_order <- unique(
+        df$Species
+      )
+
+      df[[y_var]] <- factor(
+        df[[y_var]],
+        levels = rev(species_order)
+      )
+    }
+
+    # ----------------------------------------------------------
+    # Get facet values
+    # ----------------------------------------------------------
+
+    facet_values <- unique(
+      df[[facet_var]]
+    )
+
+    facet_values <- facet_values[
+      !is.na(facet_values)
+    ]
+
+    # ----------------------------------------------------------
+    # Split facets into rows
+    # ----------------------------------------------------------
+
+    row_groups <- split(
+      facet_values,
+      ceiling(
+        seq_along(facet_values) /
+          n.cols
+      )
+    )
+
+    # ==========================================================
+    # BUILD EACH ROW
+    # ==========================================================
+
+    row_plots <- lapply(
+      seq_along(row_groups),
+      function(i) {
+        current_facets <-
+          row_groups[[i]]
+
+        # ------------------------------------------------------
+        # Build one panel for each covariate
+        # ------------------------------------------------------
+
+        plots <- lapply(
+          seq_along(current_facets),
+          function(j) {
+            current_facet <-
+              current_facets[j]
+
+            df_panel <- df %>%
+
+              dplyr::filter(
+                .data[[facet_var]] == current_facet
+              )
+
+            # --------------------------------------------------
+            # Base plot
+            # --------------------------------------------------
+
+            p <- ggplot2::ggplot(
+              df_panel,
+              ggplot2::aes(
+                y = .data[[y_var]],
+                x = estimate,
+                color = path_label,
+                group = path_label
+              )
+            ) +
+
+              # ------------------------------------------------
+              # Zero reference line
+              # ------------------------------------------------
+
+              ggplot2::geom_vline(
+                xintercept = 0,
+                linetype = "dashed",
+                linewidth = 0.35,
+                color = "grey50"
+              )
+
+            # --------------------------------------------------
+            # Points + confidence intervals
+            # --------------------------------------------------
+
+            if (use_dodge) {
+              p <- p +
+
+                ggplot2::geom_errorbar(
+                  ggplot2::aes(
+                    xmin = lower,
+                    xmax = upper
+                  ),
+                  position = pd,
+                  orientation = "y",
+                  height = 0.15,
+                  linewidth = 0.45
+                ) +
+
+                ggplot2::geom_point(
+                  position = pd,
+                  size = 2.0
+                )
+            } else {
+              p <- p +
+
+                ggplot2::geom_errorbar(
+                  ggplot2::aes(
+                    xmin = lower,
+                    xmax = upper
+                  ),
+                  orientation = "y",
+                  height = 0.15,
+                  linewidth = 0.45,
+                  color = "black"
+                ) +
+
+                ggplot2::geom_point(
+                  size = 2.0,
+                  color = "black"
+                )
+            }
+
+            # --------------------------------------------------
+            # Labels and colour scale
+            # --------------------------------------------------
+
+            p <- p +
+
+              ggplot2::labs(
+                title = current_facet,
+                x = NULL,
+                y = NULL,
+                color = if (use_colors) {
+                  "Run"
+                } else {
+                  NULL
+                }
+              ) +
+
+              color_scale +
+
+              ggplot2::guides(
+                color = if (use_colors) {
+                  "legend"
+                } else {
+                  "none"
+                }
+              )
+
+            # --------------------------------------------------
+            # Theme
+            # --------------------------------------------------
+
+            p <- p +
+
+              ggplot2::theme_bw(
+                base_size = 12
+              ) +
+
+              ggplot2::theme(
+                # ============================================
+                # PANEL TITLE
+                # ============================================
+
+                plot.title = ggplot2::element_text(
+                  size = 14,
+                  face = "bold",
+                  hjust = 0.5,
+                  color = "black",
+                  margin = ggplot2::margin(
+                    t = 3,
+                    b = 3
+                  )
+                ),
+
+                # ============================================
+                # Y AXIS / SPECIES
+                # ============================================
+
+                axis.text.y = ggplot2::element_text(
+                  size = 12,
+                  face = "plain",
+                  color = "black"
+                ),
+
+                axis.ticks.y = ggplot2::element_line(
+                  linewidth = 0.4,
+                  color = "grey40"
+                ),
+
+                # ============================================
+                # X AXIS
+                # ============================================
+
+                axis.text.x = ggplot2::element_text(
+                  size = 12,
+                  face = "plain",
+                  color = "black"
+                ),
+
+                axis.title.x = ggplot2::element_text(
+                  size = 12,
+                  face = "plain",
+                  color = "black",
+                  margin = ggplot2::margin(
+                    t = 8
+                  )
+                ),
+
+                axis.title.y = ggplot2::element_blank(),
+
+                # ============================================
+                # GRID
+                # ============================================
+
+                panel.grid.major.y = ggplot2::element_blank(),
+
+                panel.grid.minor = ggplot2::element_blank(),
+
+                panel.grid.major.x = ggplot2::element_line(
+                  color = "grey88",
+                  linewidth = 0.35
+                ),
+
+                # ============================================
+                # PANEL BORDER
+                # ============================================
+
+                panel.border = ggplot2::element_rect(
+                  color = "grey50",
+                  fill = NA,
+                  linewidth = 0.5
+                ),
+
+                # ============================================
+                # LEGEND
+                # ============================================
+
+                legend.position = "bottom",
+
+                legend.title = ggplot2::element_text(
+                  size = 11,
+                  face = "plain"
+                ),
+
+                legend.text = ggplot2::element_text(
+                  size = 10,
+                  face = "plain"
+                ),
+
+                legend.key.width = grid::unit(
+                  1.4,
+                  "cm"
+                ),
+
+                legend.spacing.x = grid::unit(
+                  0.4,
+                  "cm"
+                )
+              )
+
+            # --------------------------------------------------
+            # Remove species names except first column
+            # --------------------------------------------------
+
+            if (j > 1) {
+              p <- p +
+
+                ggplot2::theme(
+                  axis.text.y = ggplot2::element_blank(),
+
+                  axis.ticks.y = ggplot2::element_blank()
+                )
+            }
+
+            # --------------------------------------------------
+            # Remove x-axis labels except bottom row
+            # --------------------------------------------------
+
+            if (i < length(row_groups)) {
+              p <- p +
+
+                ggplot2::theme(
+                  axis.text.x = ggplot2::element_blank(),
+
+                  axis.ticks.x = ggplot2::element_blank()
+                )
+            }
+
+            p
+          }
+        )
+
+        # ------------------------------------------------------
+        # Combine panels in this row
+        # ------------------------------------------------------
+
+        patchwork::wrap_plots(
+          plots,
+          nrow = 1
+        )
+      }
+    )
+
+    # ==========================================================
+    # COMBINE ROWS
+    # ==========================================================
+
+    plot_body <-
+      patchwork::wrap_plots(
+        row_plots,
+        ncol = 1,
+        guides = "collect"
+      ) &
+
+      ggplot2::theme(
+        legend.position = "bottom"
+      )
+
+    # ==========================================================
+    # SHARED Y-AXIS LABEL
+    # ==========================================================
+
+    y_label <-
+      patchwork::wrap_elements(
+        full = grid::textGrob(
+          if (is_summary) {
+            "Covariate"
+          } else {
+            "Species"
+          },
+          rot = 90,
+          gp = grid::gpar(
+            fontsize = 13,
+            fontface = "plain",
+            col = "black"
+          )
+        )
+      )
+
+    # ==========================================================
+    # FINAL ERROR PLOT
+    # ==========================================================
+
+    final_plot <-
+      y_label +
+      plot_body +
+
+      patchwork::plot_layout(
+        widths = c(
+          0.05,
+          1
+        )
+      )
+
+    return(final_plot)
   }
 
   # ============================================================
   # VIOLIN PLOT
   # ============================================================
-  if (type == "violin") {
 
-    ggplot2::ggplot(df, ggplot2::aes(
-      x = component,
-      y = estimate,
-      fill = path_label
-    )) +
-      ggplot2::geom_violin(
-        position = ggplot2::position_dodge(0.8),
-        trim = FALSE
+  if (type == "violin") {
+    return(
+      ggplot2::ggplot(
+        df,
+        ggplot2::aes(
+          x = component,
+          y = estimate,
+          fill = path_label
+        )
       ) +
-      ggplot2::geom_boxplot(
-        width = 0.15,
-        position = ggplot2::position_dodge(0.8),
-        outlier.size = 0.5
-      ) +
-      ggplot2::facet_wrap(~ parameter, scales = "free_y") +
-      color_scale +
-      ggplot2::theme_minimal()
+
+        ggplot2::geom_violin(
+          position = ggplot2::position_dodge(
+            0.8
+          ),
+          trim = FALSE
+        ) +
+
+        ggplot2::geom_boxplot(
+          width = 0.15,
+          position = ggplot2::position_dodge(
+            0.8
+          ),
+          outlier.size = 0.5
+        ) +
+
+        ggplot2::facet_wrap(
+          ~parameter,
+          scales = "free_y",
+          ncol = n.cols
+        ) +
+
+        color_scale +
+
+        ggplot2::theme_minimal(
+          base_size = 12
+        ) +
+
+        ggplot2::theme(
+          strip.text = ggplot2::element_text(
+            size = 12
+          ),
+          axis.text = ggplot2::element_text(
+            size = 10
+          ),
+          axis.title = ggplot2::element_text(
+            size = 12
+          )
+        )
+    )
   }
 
   # ============================================================
   # RANK PLOT
   # ============================================================
-  if (type == "rank") {
 
+  if (type == "rank") {
     df_rank <- df %>%
-      dplyr::group_by(parameter, component, path_label) %>%
+
+      dplyr::group_by(
+        parameter,
+        component,
+        path_label
+      ) %>%
+
       dplyr::summarise(
-        mean_est = mean(estimate, na.rm = TRUE),
+        mean_est = mean(
+          estimate,
+          na.rm = TRUE
+        ),
         .groups = "drop"
       ) %>%
-      dplyr::arrange(dplyr::desc(abs(mean_est))) %>%
+
+      dplyr::arrange(
+        dplyr::desc(
+          abs(mean_est)
+        )
+      ) %>%
+
       dplyr::mutate(
-        parameter = factor(parameter, levels = unique(parameter))
+        parameter = factor(
+          parameter,
+          levels = unique(parameter)
+        )
       )
 
-    ggplot2::ggplot(df_rank, ggplot2::aes(
-      x = parameter,
-      y = mean_est,
-      fill = path_label
-    )) +
-      ggplot2::geom_col(
-        position = if (use_dodge) pd else "identity"
+    return(
+      ggplot2::ggplot(
+        df_rank,
+        ggplot2::aes(
+          x = parameter,
+          y = mean_est,
+          fill = path_label
+        )
       ) +
-      ggplot2::coord_flip() +
-      ggplot2::facet_wrap(~ component, scales = "free_y") +
-      color_scale +
-      ggplot2::theme_minimal()
+
+        ggplot2::geom_col(
+          position = if (use_dodge) {
+            pd
+          } else {
+            "identity"
+          }
+        ) +
+
+        ggplot2::coord_flip() +
+
+        ggplot2::facet_wrap(
+          ~component,
+          scales = "free_y",
+          ncol = n.cols
+        ) +
+
+        color_scale +
+
+        ggplot2::theme_minimal(
+          base_size = 12
+        ) +
+
+        ggplot2::theme(
+          strip.text = ggplot2::element_text(
+            size = 12
+          ),
+          axis.text = ggplot2::element_text(
+            size = 10
+          ),
+          axis.title = ggplot2::element_text(
+            size = 12
+          )
+        )
+    )
   }
 }

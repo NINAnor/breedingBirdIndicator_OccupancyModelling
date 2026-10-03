@@ -129,22 +129,24 @@
 #'
 #' @export
 summarize_occupancy_predictions <- function(
-    pred,
-    coords,
-    species_names = NULL,
-    template      = NULL,
-    return        = c("sf", "raster"),
-    crs           = NULL,
-    probs         = c(0.025, 0.975),
-    output_dir    = NULL
+  pred,
+  coords,
+  species_names = NULL,
+  template = NULL,
+  return = c("sf", "raster"),
+  crs = NULL,
+  probs = c(0.025, 0.975),
+  output_dir = NULL
 ) {
   return <- match.arg(return)
 
   psi <- pred$psi.0.samples
 
   if (is.null(psi)) {
-    stop("`pred$psi.0.samples` is NULL. Check that prediction was run successfully.",
-         call. = FALSE)
+    stop(
+      "`pred$psi.0.samples` is NULL. Check that prediction was run successfully.",
+      call. = FALSE
+    )
   }
 
   # ---------------------------------------------------------------------------
@@ -161,8 +163,8 @@ summarize_occupancy_predictions <- function(
 
   if (nd == 3) {
     # --- Multi-species ---
-    n_samples   <- dim(psi)[1]
-    n_species   <- dim(psi)[2]
+    n_samples <- dim(psi)[1]
+    n_species <- dim(psi)[2]
     n_locations <- dim(psi)[3]
 
     if (is.null(species_names)) {
@@ -172,16 +174,17 @@ summarize_occupancy_predictions <- function(
     if (length(species_names) != n_species) {
       stop(
         "`species_names` must have one name per species in `psi.0.samples` ",
-        "(", n_species, " species found).",
+        "(",
+        n_species,
+        " species found).",
         call. = FALSE
       )
     }
-
   } else if (nd == 2) {
     # --- Single-species ---
-    n_samples   <- dim(psi)[1]
+    n_samples <- dim(psi)[1]
     n_locations <- dim(psi)[2]
-    n_species   <- 1L
+    n_species <- 1L
 
     if (is.null(species_names)) {
       stop(
@@ -195,7 +198,9 @@ summarize_occupancy_predictions <- function(
     if (length(species_names) != 1L) {
       stop(
         "`pred$psi.0.samples` is 2-D (single-species output) but ",
-        "`species_names` has length ", length(species_names), ". ",
+        "`species_names` has length ",
+        length(species_names),
+        ". ",
         "Supply exactly one species name.",
         call. = FALSE
       )
@@ -203,11 +208,12 @@ summarize_occupancy_predictions <- function(
 
     # Promote to 3-D so downstream code is uniform: 1 x samples x locations -> reorder
     psi <- array(psi, dim = c(n_samples, 1L, n_locations))
-
   } else {
     stop(
       "`pred$psi.0.samples` must be a 2-D matrix (single-species) or a ",
-      "3-D array (multi-species), but has ", nd, " dimensions.",
+      "3-D array (multi-species), but has ",
+      nd,
+      " dimensions.",
       call. = FALSE
     )
   }
@@ -220,15 +226,20 @@ summarize_occupancy_predictions <- function(
 
   if (nrow(coords) != n_locations) {
     stop(
-      "`coords` has ", nrow(coords), " rows but `psi.0.samples` has ",
-      n_locations, " locations. They must match.",
+      "`coords` has ",
+      nrow(coords),
+      " rows but `psi.0.samples` has ",
+      n_locations,
+      " locations. They must match.",
       call. = FALSE
     )
   }
 
   if (!is.numeric(probs) || length(probs) != 2 || any(probs < 0 | probs > 1)) {
-    stop("`probs` must be a numeric vector of length 2 with values in [0, 1].",
-         call. = FALSE)
+    stop(
+      "`probs` must be a numeric vector of length 2 with values in [0, 1].",
+      call. = FALSE
+    )
   }
 
   # ---------------------------------------------------------------------------
@@ -248,22 +259,21 @@ summarize_occupancy_predictions <- function(
   # ---------------------------------------------------------------------------
 
   summaries <- lapply(seq_len(n_species), function(i) {
-
     # Extract samples x locations matrix for species i
     m <- matrix(psi[, i, ], nrow = n_samples, ncol = n_locations)
 
     q <- apply(m, 2, stats::quantile, probs = probs, na.rm = TRUE)
 
     data.frame(
-      species     = species_names[i],
+      species = species_names[i],
       location_id = seq_len(n_locations),
-      x           = coords[[1]],
-      y           = coords[[2]],
-      mean        = colMeans(m, na.rm = TRUE),
-      median      = apply(m, 2, stats::median, na.rm = TRUE),
-      sd          = apply(m, 2, stats::sd,     na.rm = TRUE),
-      lower       = q[1, ],
-      upper       = q[2, ],
+      x = coords[[1]],
+      y = coords[[2]],
+      mean = colMeans(m, na.rm = TRUE),
+      median = apply(m, 2, stats::median, na.rm = TRUE),
+      sd = apply(m, 2, stats::sd, na.rm = TRUE),
+      lower = q[1, ],
+      upper = q[2, ],
       stringsAsFactors = FALSE
     )
   })
@@ -276,7 +286,6 @@ summarize_occupancy_predictions <- function(
   output_dir <- normalizePath(output_dir, winslash = "/", mustWork = FALSE)
   print(output_dir)
   if (return == "sf") {
-
     if (is.null(crs)) {
       stop("Provide `crs` when `return = \"sf\"`.", call. = FALSE)
     }
@@ -284,16 +293,16 @@ summarize_occupancy_predictions <- function(
     out_sf <- sf::st_as_sf(
       out_df,
       coords = c("x", "y"),
-      crs    = crs,
+      crs = crs,
       remove = FALSE
     )
 
     if (!is.null(output_dir)) {
       for (i in seq_along(species_names)) {
-        sp      <- species_names[i]
+        sp <- species_names[i]
         sp_safe <- safe_species_names[i]
-        sp_dir  <- file.path(output_dir,
-                             sp_safe)
+        # print(sp_safe)
+        sp_dir <- file.path(output_dir, sp_safe)
         dir.create(sp_dir, recursive = TRUE, showWarnings = FALSE)
 
         sp_sf <- out_sf[out_sf$species == sp, ]
@@ -302,7 +311,7 @@ summarize_occupancy_predictions <- function(
           sp_sf,
           file.path(
             sp_dir,
-            paste0(sp_safe, "_occupancy_predictions.parquet")
+            paste0(sp_safe, "_preds.parquet")
           ),
           compression = "snappy"
         )
@@ -317,19 +326,18 @@ summarize_occupancy_predictions <- function(
   # ---------------------------------------------------------------------------
 
   if (return == "raster") {
-
     if (is.null(template)) {
       stop("Provide `template` when `return = \"raster\"`.", call. = FALSE)
     }
 
     rasters <- lapply(seq_along(species_names), function(i) {
-      sp    <- species_names[i]
+      sp <- species_names[i]
       sp_df <- out_df[out_df$species == sp, ]
 
       sp_vect <- terra::vect(
         sp_df,
         geom = c("x", "y"),
-        crs  = terra::crs(template)
+        crs = terra::crs(template)
       )
 
       r <- terra::rast(
@@ -346,15 +354,17 @@ summarize_occupancy_predictions <- function(
 
     if (!is.null(output_dir)) {
       for (i in seq_along(species_names)) {
-        sp      <- species_names[i]
+        sp <- species_names[i]
         sp_safe <- safe_species_names[i]
-        sp_dir  <- file.path(output_dir, sp_safe)
+        sp_dir <- file.path(output_dir, sp_safe)
         dir.create(sp_dir, recursive = TRUE, showWarnings = FALSE)
 
         terra::writeRaster(
           rasters[[sp]],
-          filename  = file.path(sp_dir,
-                                paste0(sp_safe, "_occupancy_predictions.tif")),
+          filename = file.path(
+            sp_dir,
+            paste0(sp_safe, "_occupancy_predictions.tif")
+          ),
           overwrite = TRUE
         )
       }

@@ -43,11 +43,11 @@
 #'
 #' @export
 extract_run_label <- function(path) {
-
   parts <- strsplit(normalizePath(path, winslash = "/"), "/")[[1]]
 
   species <- tail(parts, 2)[1]
   spatial <- tail(parts, 1)
+  version_no <- tail(parts, 4)[1]
 
   species_short <- if (species == "multiple_species_model") {
     "multi-speices"
@@ -61,7 +61,7 @@ extract_run_label <- function(path) {
     "non-spatial"
   }
 
-  paste(species_short, spatial_short, sep = ";")
+  paste(species_short, spatial_short, version_no, sep = ";")
 }
 
 
@@ -130,16 +130,18 @@ extract_run_label <- function(path) {
 #' @importFrom tidyr crossing
 #'
 #' @export
-build_model_paths <- function(output_root,
-                              version_label,
-                              ecosystemType,
-                              include_single_species = c(TRUE, FALSE),
-                              include_spatial_model   = c(TRUE, FALSE),
-                              existing_only = FALSE) {
-
+build_model_paths <- function(
+  output_root,
+  version_labels,
+  ecosystemType,
+  include_single_species = c(TRUE, FALSE),
+  include_spatial_model = c(TRUE, FALSE),
+  existing_only = FALSE
+) {
   df <- tidyr::crossing(
     fit_single_species = include_single_species,
-    fit_spatial_model  = include_spatial_model
+    fit_spatial_model = include_spatial_model,
+    version_label = version_labels
   ) %>%
     dplyr::mutate(
       species_dir = dplyr::if_else(
