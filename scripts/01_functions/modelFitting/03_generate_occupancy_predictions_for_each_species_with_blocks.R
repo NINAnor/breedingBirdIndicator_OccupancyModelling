@@ -29,15 +29,32 @@
 #'   species-level predictions.
 #'
 #' @export
+#' Generate block-wise occupancy and/or detection predictions
+#'
+#' Requires the existing package helpers `make_rhs()`, `safe_name()`, and
+#' `.resolve_model_meta()`. The metadata helper must return:
+#' `single_species`, `species_names`, `x_names` (occupancy design columns) and
+#' `x_p_names` (detection design columns, needed for detection predictions).
+#'
+#' @param prediction_type One of "occupancy", "detection", or "both".
+#' @param det_covariates Detection-model covariates (optional; if the fitted
+#'   detection columns are year-specific, e.g. `mean_temperature2020`, the
+#'   design matrix is built directly from the fitted column names).
+#' @param occ_covariates Occupancy-model covariates.
+#' @param return Either "sf" or "raster".
+#' @param n_omp_threads Threads passed to spatial `predict()` methods.
+#' @importFrom rlang .data
+#' @export
 generate_occupancy_predictions_for_each_species_with_blocks <- function(
   input_dir,
   prediction_points,
-  det_covariates,
-  occ_covariates,
+  det_covariates = NULL,
+  occ_covariates = NULL,
   base_raster = NULL,
   model_crs,
   ecosystem_type,
   output_dir,
+  prediction_type = c("occupancy", "detection", "both"),
   return = c("sf", "raster"),
   probs = c(0.025, 0.975),
   use_route_random_effect = FALSE,
@@ -47,59 +64,52 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
   plot_width = 8,
   plot_height = 6,
   plot_dpi = 300,
-  block_size = 5000
+  block_size = 5000,
+  n_omp_threads = 1L
 ) {
-  # ========================================================================
-  # 1. Validate inputs
-  # ========================================================================
-
+  prediction_type <- match.arg(prediction_type)
   return <- match.arg(return)
 
+  need_occ <- prediction_type %in% c("occupancy", "both")
+  need_det <- prediction_type %in% c("detection", "both")
+
+  # ---- Argument checks ------------------------------------------------------
   if (!dir.exists(input_dir)) {
-    stop(
-      "`input_dir` does not exist or is not a directory: ",
-      input_dir,
-      call. = FALSE
-    )
+    stop("`input_dir` does not exist: ", input_dir, call. = FALSE)
   }
-
   if (return == "raster" && is.null(base_raster)) {
+    stop("Supply `base_raster` when `return = 'raster'`.", call. = FALSE)
+  }
+  if (need_occ && is.null(occ_covariates)) {
     stop(
-      "`base_raster` must be supplied when ",
-      "`return = 'raster'`.",
+      "`occ_covariates` is required for occupancy predictions.",
       call. = FALSE
     )
   }
-
   if (
     length(block_size) != 1L ||
       !is.numeric(block_size) ||
       is.na(block_size) ||
-      block_size < 1
+      block_size < 1 ||
+      block_size != as.integer(block_size)
+  ) {
+    stop("`block_size` must be a positive integer.", call. = FALSE)
+  }
+  if (
+    length(probs) != 2L ||
+      anyNA(probs) ||
+      any(probs < 0 | probs > 1) ||
+      probs[1] >= probs[2]
   ) {
     stop(
-      "`block_size` must be a positive integer.",
+      "`probs` must contain two increasing probabilities in [0, 1].",
       call. = FALSE
     )
   }
 
   block_size <- as.integer(block_size)
-
-  dir.create(
-    output_dir,
-    recursive = TRUE,
-    showWarnings = FALSE
-  )
-
-  output_dir <- normalizePath(
-    output_dir,
-    winslash = "/",
-    mustWork = FALSE
-  )
-
-  # ========================================================================
-  # 2. Find fitted model files
-  # ========================================================================
+  dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+  output_dir <- normalizePath(output_dir, winslash = "/", mustWork = FALSE)
 
   rds_files <- list.files(
     input_dir,
@@ -107,1107 +117,454 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
     recursive = TRUE,
     full.names = TRUE
   )
+  if (!length(rds_files)) {
+    stop("No .rds files found in `input_dir`.", call. = FALSE)
+  }
 
-  if (length(rds_files) == 0) {
+  prediction_points <- as.data.frame(prediction_points)
+  if (!all(c("long", "lat") %in% names(prediction_points))) {
     stop(
-      "No .rds files found in `input_dir`.",
+      "`prediction_points` must contain coordinate columns `long` and `lat`.",
       call. = FALSE
     )
   }
 
-  # ========================================================================
-  # 3. Prepare prediction data
-  # ========================================================================
-
-  message(
-    "Preparing prediction data."
-  )
-
-  prediction_points <- prediction_points %>%
-    dplyr::filter(
-      stats::complete.cases(.)
-    )
-
-  # ------------------------------------------------------------------------
-  # Route random effect
-  # ------------------------------------------------------------------------
-
   if (use_route_random_effect) {
-    prediction_points <- prediction_points %>%
-      dplyr::mutate(
-        route_id = 1
-      )
+    prediction_points$route_id <- 1
   }
 
-  # ------------------------------------------------------------------------
-  # Temporal means
-  # ------------------------------------------------------------------------
-
-  prediction_points <- prediction_points %>%
-    dplyr::mutate(
-      mean_temperature = rowMeans(
-        dplyr::across(
-          dplyr::matches(
-            "^mean_temperature_[0-9]{4}$"
-          )
-        ),
-        na.rm = TRUE
-      ),
-
-      mean_precipitation = rowMeans(
-        dplyr::across(
-          dplyr::matches(
-            "^mean_precipitation_[0-9]{4}$"
-          )
-        ),
-        na.rm = TRUE
-      ),
-
-      snowmelt = rowMeans(
-        dplyr::across(
-          dplyr::matches(
-            "^snowmelt_[0-9]{4}$"
-          )
-        ),
+  # ---- Aggregate yearly covariates (used by occupancy formulas) -------------
+  temporal_groups <- list(
+    mean_temperature = "^mean_temperature_[0-9]{4}$",
+    mean_precipitation = "^mean_precipitation_[0-9]{4}$",
+    snowmelt = "^snowmelt_[0-9]{4}$"
+  )
+  for (nm in names(temporal_groups)) {
+    cols <- grep(temporal_groups[[nm]], names(prediction_points), value = TRUE)
+    if (length(cols)) {
+      prediction_points[[nm]] <- rowMeans(
+        prediction_points[, cols, drop = FALSE],
         na.rm = TRUE
       )
+    }
+  }
+
+  occ_formula <- if (need_occ) {
+    stats::as.formula(
+      paste("~", make_rhs(occ_covariates, use_route_random_effect))
     )
-
-  # ========================================================================
-  # 4. Occupancy formula
-  # ========================================================================
-
-  occ_rhs <- make_rhs(
-    occ_covariates,
-    use_route_random_effect
-  )
-
-  occ_formula <- stats::as.formula(
-    paste(
-      "~",
-      occ_rhs
+  }
+  det_formula <- if (need_det && !is.null(det_covariates)) {
+    stats::as.formula(
+      paste("~", make_rhs(det_covariates, use_route_random_effect))
     )
-  )
+  }
 
-  # ========================================================================
-  # 5. Prediction blocks
-  # ========================================================================
+  # Only drop rows missing variables needed by the requested prediction(s).
+  required_vars <- unique(c(
+    if (need_occ) all.vars(occ_formula),
+    if (need_det && !is.null(det_formula)) all.vars(det_formula),
+    "long",
+    "lat"
+  ))
+  missing_vars <- setdiff(required_vars, names(prediction_points))
+  if (length(missing_vars)) {
+    stop(
+      "Prediction data are missing required variables: ",
+      paste(missing_vars, collapse = ", "),
+      call. = FALSE
+    )
+  }
 
-  n_prediction <- nrow(
-    prediction_points
-  )
+  keep <- stats::complete.cases(prediction_points[,
+    required_vars,
+    drop = FALSE
+  ])
+  if (any(!keep)) {
+    warning(
+      sum(!keep),
+      " prediction rows removed because required variables are missing."
+    )
+    prediction_points <- prediction_points[keep, , drop = FALSE]
+  }
+  if (!nrow(prediction_points)) {
+    stop("No complete prediction locations remain.", call. = FALSE)
+  }
 
-  block_starts <- seq(
-    1L,
-    n_prediction,
-    by = block_size
-  )
-
-  n_blocks <- length(
-    block_starts
-  )
-
+  n_prediction <- nrow(prediction_points)
+  block_starts <- seq.int(1L, n_prediction, by = block_size)
+  n_blocks <- length(block_starts)
   message(
-    "\nPrediction locations: ",
-    format(
-      n_prediction,
-      big.mark = ","
-    )
+    "Prediction locations: ",
+    format(n_prediction, big.mark = ","),
+    "; blocks: ",
+    n_blocks,
+    "; block size: ",
+    block_size
   )
 
-  message(
-    "Block size: ",
-    format(
-      block_size,
-      big.mark = ","
-    )
-  )
+  requested_types <- if (prediction_type == "both") {
+    c("occupancy", "detection")
+  } else {
+    prediction_type
+  }
 
-  message(
-    "Number of prediction blocks: ",
-    n_blocks
-  )
+  if (return == "raster" && !inherits(base_raster, "SpatRaster")) {
+    base_raster <- terra::rast(base_raster)
+  }
 
-  # ========================================================================
-  # 6. Final results
-  # ========================================================================
-  #
-  # Only summarized predictions are retained.
-  #
-  # pred itself is deleted after every block.
-  #
-  # ========================================================================
+  all_results <- list() # sf results (return = "sf") or rasters (return = "raster")
 
-  all_results <- list()
-
-  # =========================================================================
-  # 7. Loop over models
-  # =========================================================================
-
+  # ---- Loop over fitted models ----------------------------------------------
   for (rds_file in rds_files) {
-    cat(
+    message(
       "\n",
-      paste(
-        rep("=", 72),
-        collapse = ""
-      ),
-      "\n",
-      sep = ""
-    )
-
-    cat(
-      "Reading: ",
+      strrep("=", 72),
+      "\nReading: ",
       rds_file,
       "\n",
-      sep = ""
+      strrep("=", 72)
     )
 
-    cat(
-      paste(
-        rep("=", 72),
-        collapse = ""
-      ),
-      "\n",
-      sep = ""
-    )
-
-    # ----------------------------------------------------------------------
-    # Read model
-    # ----------------------------------------------------------------------
-
-    output <- tryCatch(
-      readRDS(
-        rds_file
-      ),
-
-      error = function(e) {
-        stop(
-          "Failed to read:\n",
-          rds_file,
-          "\n\n",
-          conditionMessage(e),
-          call. = FALSE
-        )
-      }
-    )
+    output <- tryCatch(readRDS(rds_file), error = function(e) {
+      stop(
+        "Failed to read ",
+        rds_file,
+        ": ",
+        conditionMessage(e),
+        call. = FALSE
+      )
+    })
 
     if (is.null(output$model_products$model)) {
-      warning(
-        "Skipping file without ",
-        "`output$model_products$model`: ",
-        rds_file
-      )
-
-      rm(output)
-
+      warning("Skipping file without `output$model_products$model`: ", rds_file)
       next
     }
-
     model <- output$model_products$model
 
-    # ----------------------------------------------------------------------
-    # Model metadata
-    # ----------------------------------------------------------------------
-
     meta <- tryCatch(
-      .resolve_model_meta(
-        output,
-        rds_file
-      ),
-
+      .resolve_model_meta(output, rds_file),
       error = function(e) {
         warning(
-          conditionMessage(e),
-          "\nSkipping: ",
-          rds_file
+          "Could not resolve model metadata for ",
+          basename(rds_file),
+          ": ",
+          conditionMessage(e)
         )
-
         NULL
       }
     )
-
     if (is.null(meta)) {
-      rm(
-        output,
-        model
-      )
-
-      gc(
-        verbose = FALSE
-      )
-
       next
     }
 
-    is_single <- meta$single_species
+    is_single <- isTRUE(meta$single_species)
+    species_names <- meta$species_names
+    occ_x_names <- meta$x_names
+    det_x_names <- meta$x_p_names
 
-    sp_names <- meta$species_names
-
-    x_names <- meta$x_names
-
-    # ----------------------------------------------------------------------
-    # Spatial model
-    # ----------------------------------------------------------------------
-
-    is_spatial <- if (
-      !is.null(
-        output$fit_spatial_model
-      )
-    ) {
-      isTRUE(
-        output$fit_spatial_model
-      )
-    } else {
-      inherits(
-        model,
-        c(
-          "spPGOcc",
-          "spMsPGOcc"
-        )
-      )
-    }
-
-    cat(
-      sprintf(
-        "Model: %s | %s | %d species\n",
-        if (is_single) {
-          "single-species"
-        } else {
-          "multi-species"
-        },
-        if (is_spatial) {
-          "spatial"
-        } else {
-          "non-spatial"
-        },
-        length(sp_names)
-      )
-    )
-
-    cat(
-      "Species: ",
-      paste(
-        sp_names,
-        collapse = ", "
-      ),
-      "\n",
-      sep = ""
-    )
-
-    # ======================================================================
-    # 8. Check raw occupancy variables
-    # ======================================================================
-
-    required_vars <- all.vars(
-      occ_formula
-    )
-
-    missing_vars <- setdiff(
-      required_vars,
-      colnames(prediction_points)
-    )
-
-    if (length(missing_vars) > 0) {
-      stop(
-        "Prediction data are missing variables required by the ",
-        "occupancy formula for ",
+    if (need_det && (is.null(det_x_names) || !length(det_x_names))) {
+      warning(
+        "No detection design column names for ",
         basename(rds_file),
-        ":\n",
-        paste(
-          missing_vars,
-          collapse = ", "
-        ),
-        call. = FALSE
+        "; skipping."
       )
+      next
     }
 
-    # ======================================================================
-    # 9. Preserve factor structure
-    # ======================================================================
-
-    factor_columns <- names(
-      prediction_points
-    )[
-      vapply(
-        prediction_points,
-        is.factor,
-        logical(1)
-      )
-    ]
-
-    if (length(factor_columns) > 0) {
-      for (v in factor_columns) {
-        prediction_points[[v]] <- factor(
-          prediction_points[[v]],
-          levels = levels(
-            prediction_points[[v]]
-          )
-        )
-      }
+    is_spatial <- if (!is.null(output$fit_spatial_model)) {
+      isTRUE(output$fit_spatial_model)
+    } else {
+      inherits(model, c("spPGOcc", "spMsPGOcc"))
     }
 
-    # ======================================================================
-    # 10. Block summary accumulator
-    # ======================================================================
-
-    species_blocks <- setNames(
-      vector(
-        "list",
-        length(sp_names)
-      ),
-      sp_names
+    message(
+      "Model: ",
+      if (is_single) "single-species" else "multi-species",
+      " | ",
+      if (is_spatial) "spatial" else "non-spatial",
+      " | ",
+      length(species_names),
+      " species"
     )
 
-    # =========================================================================
-    # 11. Prediction blocks
-    # =========================================================================
+    # Plain data.frames per species; sf geometry is built once at the end.
+    species_blocks <- stats::setNames(
+      vector("list", length(species_names)),
+      species_names
+    )
 
-    for (b in seq_len(n_blocks)) {
+    for (b in seq_along(block_starts)) {
       block_start <- block_starts[b]
-
-      block_end <- min(
-        block_start + block_size - 1L,
-        n_prediction
-      )
-
+      block_end <- min(block_start + block_size - 1L, n_prediction)
       block_idx <- block_start:block_end
-
-      cat(
-        sprintf(
-          "\n  Block %d/%d: rows %s-%s (%s locations)\n",
-          b,
-          n_blocks,
-          format(
-            block_start,
-            big.mark = ","
-          ),
-          format(
-            block_end,
-            big.mark = ","
-          ),
-          format(
-            length(block_idx),
-            big.mark = ","
-          )
-        )
+      prediction_block <- prediction_points[block_idx, , drop = FALSE]
+      message(
+        "  Block ",
+        b,
+        "/",
+        n_blocks,
+        " (rows ",
+        block_start,
+        "-",
+        block_end,
+        ")"
       )
 
-      # =====================================================================
-      # 11.1 Extract block
-      # =====================================================================
+      coords_df <- prediction_block[, c("long", "lat"), drop = FALSE]
+      coords_mat <- as.matrix(coords_df)
 
-      prediction_block <- prediction_points[
-        block_idx,
-        ,
-        drop = FALSE
-      ]
+      block_summary <- NULL # named list: species -> data.frame
+      block_failed <- FALSE
 
-      # =====================================================================
-      # 11.2 Construct model matrix
-      # =====================================================================
+      # One type at a time so both posterior objects are never in memory together.
+      for (ptype in requested_types) {
+        if (ptype == "occupancy") {
+          frm <- occ_formula
+          expected <- occ_x_names
+          sample_field <- "psi.0.samples"
+        } else {
+          expected <- det_x_names
+          # Year-specific fitted columns: build directly from fitted names.
+          frm <- if (any(grepl(.year_pattern, expected, perl = TRUE))) {
+            NULL
+          } else {
+            det_formula
+          }
+          sample_field <- "p.0.samples"
+        }
 
-      X_0 <- tryCatch(
-        stats::model.matrix(
-          occ_formula,
-          data = prediction_block
-        ),
+        X <- tryCatch(
+          .make_prediction_matrix(
+            formula = frm,
+            data = prediction_block,
+            expected_names = expected,
+            type = ptype,
+            label = paste(ptype, "prediction")
+          ),
+          error = function(e) {
+            stop(
+              "Failed to build ",
+              ptype,
+              " matrix for ",
+              basename(rds_file),
+              ", block ",
+              b,
+              ": ",
+              conditionMessage(e),
+              call. = FALSE
+            )
+          }
+        )
 
-        error = function(e) {
-          stop(
-            "Could not construct model.matrix() for block ",
-            b,
-            " of ",
+        pred <- tryCatch(
+          .run_predict(
+            model = model,
+            X_0 = X,
+            coords_0_mat = coords_mat,
+            is_single = is_single,
+            is_spatial = is_spatial,
+            ignore_RE = ignore_RE,
+            verbose = verbose,
+            type = ptype,
+            n_omp_threads = n_omp_threads
+          ),
+          error = function(e) {
+            warning(
+              "Prediction failed (",
+              ptype,
+              ") for ",
+              basename(rds_file),
+              ", block ",
+              b,
+              ": ",
+              conditionMessage(e)
+            )
+            NULL
+          }
+        )
+        draws <- if (!is.null(pred)) pred[[sample_field]]
+        rm(X, pred)
+
+        if (is.null(draws)) {
+          warning(
+            "No `$",
+            sample_field,
+            "` for ",
             basename(rds_file),
-            ":\n",
-            conditionMessage(e),
-            call. = FALSE
+            ", block ",
+            b,
+            "; block skipped."
           )
+          block_failed <- TRUE
+          break
         }
-      )
 
-      cat(
-        "    Model matrix: ",
-        nrow(X_0),
-        " x ",
-        ncol(X_0),
-        "\n",
-        sep = ""
-      )
-
-      # =====================================================================
-      # 11.3 Add model columns absent from this block
-      # =====================================================================
-      #
-      # This handles factor levels that do not occur in an individual
-      # prediction block.
-      #
-      # If the full prediction data contain a level but the current block
-      # does not, model.matrix() can omit that dummy column.
-      #
-      # The fitted model still expects the column, so add it as zero.
-      #
-      # =====================================================================
-
-      missing_cols <- setdiff(
-        x_names,
-        colnames(X_0)
-      )
-
-      if (length(missing_cols) > 0) {
-        cat(
-          "    Adding missing model columns: ",
-          paste(
-            missing_cols,
-            collapse = ", "
-          ),
-          "\n",
-          sep = ""
+        smry <- .summarise_draws(
+          draws = draws,
+          species_names = species_names,
+          coords = coords_df,
+          location_ids = block_idx,
+          probs = probs,
+          is_single = is_single,
+          prefix = if (prediction_type == "both") paste0(ptype, "_") else ""
         )
+        rm(draws)
 
-        for (col in missing_cols) {
-          X_0[[col]] <- 0
+        if (is.null(block_summary)) {
+          block_summary <- smry
+        } else {
+          # Same species and same row order, so columns can be bound directly.
+          id_cols <- c("species", "location_id", "x", "y")
+          for (sp in names(smry)) {
+            block_summary[[sp]] <- cbind(
+              block_summary[[sp]],
+              smry[[sp]][, setdiff(names(smry[[sp]]), id_cols), drop = FALSE]
+            )
+          }
         }
+        rm(smry)
       }
 
-      # =====================================================================
-      # 11.4 Remove/reorder columns to exactly match fitted model
-      # =====================================================================
+      # A block is kept only if every requested type succeeded, so columns
+      # are consistent across blocks and rbind() cannot fail later.
+      if (!block_failed && !is.null(block_summary)) {
+        for (sp in names(block_summary)) {
+          species_blocks[[sp]][[length(species_blocks[[sp]]) + 1L]] <-
+            block_summary[[sp]]
+        }
+      }
+      rm(block_summary, prediction_block, coords_df, coords_mat)
+      gc(verbose = FALSE)
+    }
 
-      X_0 <- X_0[,
-        x_names,
-        drop = FALSE
-      ]
+    # ---- Per-species output -------------------------------------------------
+    for (sp in species_names) {
+      if (!length(species_blocks[[sp]])) {
+        warning("No successful prediction blocks for species: ", sp)
+        next
+      }
 
-      if (
-        !identical(
-          colnames(X_0),
-          x_names
-        )
-      ) {
+      sp_df <- do.call(rbind, species_blocks[[sp]])
+      species_blocks[[sp]] <- NULL
+      sp_df <- sp_df[order(sp_df$location_id), , drop = FALSE]
+      sp_result <- sf::st_as_sf(
+        sp_df,
+        coords = c("x", "y"),
+        crs = model_crs,
+        remove = FALSE
+      )
+      rm(sp_df)
+
+      sp_safe <- safe_name(sp)
+      species_dir <- file.path(output_dir, sp_safe)
+      dir.create(species_dir, recursive = TRUE, showWarnings = FALSE)
+
+      ok <- dir.create(species_dir, recursive = TRUE, showWarnings = FALSE) ||
+        dir.exists(species_dir)
+      if (!ok) {
+        stop("Could not create directory: ", species_dir, call. = FALSE)
+      }
+
+      parquet_file <- file.path(
+        species_dir,
+        paste0(sp_safe, "_", type_suffix, ".parquet")
+      )
+      if (.Platform$OS.type == "windows" && nchar(parquet_file) >= 250) {
         stop(
-          "Prediction model matrix does not match fitted model ",
-          "after alignment in block ",
-          b,
-          ".",
+          "Output path is ",
+          nchar(parquet_file),
+          " characters, above the Windows 260 limit. Use a shorter `output_dir`:\n",
+          parquet_file,
           call. = FALSE
         )
       }
 
-      # =====================================================================
-      # 11.5 Coordinates
-      # =====================================================================
-
-      coords_0_mat <- as.matrix(
-        prediction_block[,
-          c(
-            "long",
-            "lat"
-          ),
-          drop = FALSE
-        ]
-      )
-
-      coords_0_df <- prediction_block[,
-        c(
-          "long",
-          "lat"
-        ),
-        drop = FALSE
-      ]
-
-      # =====================================================================
-      # 11.6 Run prediction
-      # =====================================================================
-
-      cat(
-        "    Running .run_predict()...\n"
-      )
-
-      pred <- tryCatch(
-        .run_predict(
-          model = model,
-          X_0 = X_0,
-          coords_0_mat = coords_0_mat,
-          is_single = is_single,
-          is_spatial = is_spatial,
-          ignore_RE = ignore_RE,
-          verbose = verbose
-        ),
-
-        error = function(e) {
-          warning(
-            "Prediction failed for ",
-            basename(rds_file),
-            ", block ",
-            b,
-            ":\n",
-            conditionMessage(e)
-          )
-
-          NULL
-        }
-      )
-
-      if (is.null(pred)) {
-        rm(
-          prediction_block,
-          X_0,
-          coords_0_mat,
-          coords_0_df
-        )
-
-        gc(
-          verbose = FALSE
-        )
-
-        next
-      }
-
-      # =====================================================================
-      # 11.7 Temporary output directory
-      # =====================================================================
-      #
-      # summarize_occupancy_predictions() requires a valid path because
-      # it currently calls normalizePath(output_dir), even when the user
-      # does not intend to save from that function.
-      #
-      # We therefore give each block its own temporary directory.
-      #
-      # =====================================================================
-
-      model_safe <- safe_name(
-        tools::file_path_sans_ext(
-          basename(rds_file)
-        )
-      )
-
-      block_output_dir <- file.path(
-        output_dir,
-        "_block_summaries",
-        model_safe,
-        paste0(
-          "block_",
-          b
-        )
-      )
-
-      dir.create(
-        block_output_dir,
-        recursive = TRUE,
-        showWarnings = FALSE
-      )
-
-      # =====================================================================
-      # 11.8 Summarize this block
-      # =====================================================================
-
-      cat(
-        "    Summarizing posterior predictions...\n"
-      )
-
-      block_results <- tryCatch(
-        summarize_occupancy_predictions(
-          pred = pred,
-          coords = coords_0_df,
-          species_names = sp_names,
-          template = NULL,
-          return = "sf",
-          crs = model_crs,
-          probs = probs,
-          output_dir = block_output_dir
-        ),
-
-        error = function(e) {
-          warning(
-            "Could not summarize block ",
-            b,
-            " for ",
-            basename(rds_file),
-            ":\n",
-            conditionMessage(e)
-          )
-
-          NULL
-        }
-      )
-
-      # =====================================================================
-      # 11.9 Keep summarized block results
-      # =====================================================================
-
-      if (!is.null(block_results)) {
-        for (sp in sp_names) {
-          sp_block <- dplyr::filter(
-            block_results,
-            species == sp
-          )
-
-          if (nrow(sp_block) > 0) {
-            species_blocks[[sp]][[
-              length(
-                species_blocks[[sp]]
-              ) +
-                1L
-            ]] <- sp_block
-          }
-        }
-      }
-
-      # =====================================================================
-      # 11.10 Remove temporary block output
-      # =====================================================================
-
-      if (dir.exists(block_output_dir)) {
-        unlink(
-          block_output_dir,
-          recursive = TRUE,
-          force = TRUE
-        )
-      }
-
-      # =====================================================================
-      # 11.11 Release large objects immediately
-      # =====================================================================
-
-      rm(
-        pred,
-        block_results,
-        prediction_block,
-        X_0,
-        coords_0_mat,
-        coords_0_df
-      )
-
-      gc(
-        verbose = FALSE
-      )
-    }
-
-    # =========================================================================
-    # 12. MERGE BLOCK PREDICTIONS AND SAVE
-    # =========================================================================
-
-    cat(
-      "\nMerging block predictions for model:\n",
-      basename(rds_file),
-      "\n"
-    )
-
-    for (sp in sp_names) {
-      sp_safe <- safe_name(
-        sp
-      )
-
-      # ----------------------------------------------------------------------
-      # Check for successful blocks
-      # ----------------------------------------------------------------------
-
-      if (
-        length(
-          species_blocks[[sp]]
-        ) ==
-          0
-      ) {
-        warning(
-          "No successful prediction blocks for species: ",
-          sp
-        )
-
-        next
-      }
-
-      # ----------------------------------------------------------------------
-      # Merge all summarized blocks
-      # ----------------------------------------------------------------------
-
-      cat(
-        "  Merging ",
-        length(
-          species_blocks[[sp]]
-        ),
-        " blocks for ",
-        sp,
-        "\n",
-        sep = ""
-      )
-
-      sp_result <- do.call(
-        rbind,
-        species_blocks[[sp]]
-      )
-
-      # ----------------------------------------------------------------------
-      # Rebuild geometry after rbind if necessary
-      # ----------------------------------------------------------------------
-
-      if (
-        !inherits(
-          sp_result,
-          "sf"
-        )
-      ) {
-        sp_result <- sf::st_as_sf(
-          sp_result,
-          coords = c(
-            "x",
-            "y"
-          ),
-          crs = model_crs,
-          remove = FALSE
-        )
-      }
-
-      # ----------------------------------------------------------------------
-      # Order by location
-      # ----------------------------------------------------------------------
-
-      sp_result <- sp_result[
-        order(
-          sp_result$location_id
-        ),
-        ,
-        drop = FALSE
-      ]
-
-      # ----------------------------------------------------------------------
-      # Final species directory
-      # ----------------------------------------------------------------------
-
-      species_output_dir <- file.path(
-        output_dir,
-        sp_safe
-      )
-
-      dir.create(
-        species_output_dir,
-        recursive = TRUE,
-        showWarnings = FALSE
-      )
-
-      # =====================================================================
-      # 12.1 Save merged SF / GeoParquet
-      # =====================================================================
-
-      merged_parquet <- file.path(
-        species_output_dir,
-        paste0(
-          sp_safe,
-          "_occupancy_predictions.parquet"
-        )
-      )
-
-      cat(
-        "  Saving merged predictions:\n",
-        "  ",
-        merged_parquet,
-        "\n",
-        sep = ""
-      )
-
+      type_suffix <- paste0(prediction_type, "_predictions")
       sfarrow::st_write_parquet(
         sp_result,
-        merged_parquet,
+        file.path(species_dir, paste0(type_suffix, ".parquet")),
         compression = "snappy"
-      )
-
-      # =====================================================================
-      # 12.2 Save merged RDS
-      # =====================================================================
-
-      merged_rds <- file.path(
-        species_output_dir,
-        paste0(
-          sp_safe,
-          "_",
-          return,
-          "_occupancy_predictions.rds"
-        )
       )
 
       saveRDS(
         sp_result,
-        merged_rds
+        file.path(
+          species_dir,
+          paste0(sp_safe, "_", return, "_", type_suffix, ".rds")
+        )
       )
-
-      cat(
-        "  Merged predictions: ",
-        format(
-          nrow(sp_result),
-          big.mark = ","
-        ),
-        " rows\n",
-        sep = ""
-      )
-
-      # =====================================================================
-      # 12.3 Plot merged predictions
-      # =====================================================================
 
       if (save_plots) {
-        plot_dir <- file.path(
-          species_output_dir,
-          "plots"
-        )
-
-        dir.create(
-          plot_dir,
-          recursive = TRUE,
-          showWarnings = FALSE
-        )
-
-        p <- ggplot2::ggplot(
-          sp_result
-        ) +
-
-          ggplot2::geom_sf(
-            ggplot2::aes(
-              colour = mean
-            ),
-            size = 0.15,
-            alpha = 0.8
-          ) +
-
-          ggplot2::scale_color_viridis_c(
-            name = "Occupancy\nprobability",
-            limits = c(
-              0,
-              1
-            ),
-            na.value = "grey80"
-          ) +
-
-          ggplot2::coord_sf() +
-
-          ggplot2::theme_bw() +
-
-          ggplot2::labs(
-            title = sp,
-            subtitle = paste0(
-              ecosystem_type,
-              " | ",
-              if (is_single) {
-                "single-species"
-              } else {
-                "multi-species"
-              },
-              " | ",
-              if (is_spatial) {
-                "spatial"
-              } else {
-                "non-spatial"
-              }
+        plot_dir <- file.path(species_dir, "plots")
+        dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
+        for (ptype in requested_types) {
+          value_col <- if (prediction_type == "both") {
+            paste0(ptype, "_mean")
+          } else {
+            "mean"
+          }
+          p <- ggplot2::ggplot(sp_result) +
+            ggplot2::geom_sf(
+              ggplot2::aes(colour = .data[[value_col]]),
+              size = 0.15,
+              alpha = 0.8
+            ) +
+            ggplot2::scale_colour_viridis_c(
+              name = paste0(tools::toTitleCase(ptype), "\nprobability"),
+              limits = c(0, 1),
+              na.value = "grey80"
+            ) +
+            ggplot2::coord_sf() +
+            ggplot2::theme_bw() +
+            ggplot2::labs(
+              title = sp,
+              subtitle = paste(
+                ecosystem_type,
+                if (is_single) "single-species" else "multi-species",
+                if (is_spatial) "spatial" else "non-spatial",
+                sep = " | "
+              )
             )
+          plot_base <- file.path(
+            plot_dir,
+            paste0(sp_safe, "_", ptype, "_probability")
           )
-
-        plot_base <- file.path(
-          plot_dir,
-          paste0(
-            sp_safe,
-            "_occupancy_probability"
+          ggplot2::ggsave(
+            paste0(plot_base, ".png"),
+            p,
+            width = plot_width,
+            height = plot_height,
+            dpi = plot_dpi
           )
-        )
-
-        ggplot2::ggsave(
-          filename = paste0(
-            plot_base,
-            ".png"
-          ),
-          plot = p,
-          width = plot_width,
-          height = plot_height,
-          dpi = plot_dpi
-        )
-
-        ggplot2::ggsave(
-          filename = paste0(
-            plot_base,
-            ".pdf"
-          ),
-          plot = p,
-          width = plot_width,
-          height = plot_height
-        )
+          ggplot2::ggsave(
+            paste0(plot_base, ".pdf"),
+            p,
+            width = plot_width,
+            height = plot_height
+          )
+          rm(p)
+        }
       }
 
-      # ----------------------------------------------------------------------
-      # Store final merged result
-      # ----------------------------------------------------------------------
-
-      all_results[[sp]] <- sp_result
-
-      # ----------------------------------------------------------------------
-      # Release species block objects
-      # ----------------------------------------------------------------------
-
-      species_blocks[[sp]] <- NULL
-
-      rm(
-        sp_result
-      )
-
-      gc(
-        verbose = FALSE
-      )
-    }
-
-    # =========================================================================
-    # 13. Clean model
-    # =========================================================================
-
-    rm(
-      output,
-      model,
-      species_blocks
-    )
-
-    gc(
-      verbose = FALSE
-    )
-  }
-
-  # =========================================================================
-  # 14. Return merged SF results
-  # =========================================================================
-
-  if (return == "sf") {
-    return(
-      invisible(
-        all_results
-      )
-    )
-  }
-
-  # =========================================================================
-  # 15. Convert merged predictions to raster
-  # =========================================================================
-
-  if (
-    !inherits(
-      base_raster,
-      "terra::SpatRaster"
-    )
-  ) {
-    base_raster <- terra::rast(
-      base_raster
-    )
-  }
-
-  raster_results <- list()
-
-  for (sp in names(all_results)) {
-    sp_safe <- safe_name(
-      sp
-    )
-
-    sp_sf <- all_results[[sp]]
-
-    cat(
-      "\nRasterizing merged predictions for: ",
-      sp,
-      "\n",
-      sep = ""
-    )
-
-    # ----------------------------------------------------------------------
-    # Rasterize summaries
-    # ----------------------------------------------------------------------
-
-    mean_raster <- terra::rasterize(
-      terra::vect(sp_sf),
-      base_raster,
-      field = "mean"
-    )
-
-    median_raster <- terra::rasterize(
-      terra::vect(sp_sf),
-      base_raster,
-      field = "median"
-    )
-
-    sd_raster <- terra::rasterize(
-      terra::vect(sp_sf),
-      base_raster[[1]],
-      field = "sd"
-    )
-
-    lower_raster <- terra::rasterize(
-      terra::vect(sp_sf),
-      base_raster[[1]],
-      field = "lower"
-    )
-
-    upper_raster <- terra::rasterize(
-      terra::vect(sp_sf),
-      base_raster[[1]],
-      field = "upper"
-    )
-
-    names(mean_raster) <- "mean"
-    names(median_raster) <- "median"
-    names(sd_raster) <- "sd"
-    names(lower_raster) <- "lower"
-    names(upper_raster) <- "upper"
-
-    sp_raster <- c(
-      mean_raster,
-      median_raster,
-      sd_raster,
-      lower_raster,
-      upper_raster
-    )
-
-    # ----------------------------------------------------------------------
-    # Save raster
-    # ----------------------------------------------------------------------
-
-    species_output_dir <- file.path(
-      output_dir,
-      sp_safe
-    )
-
-    raster_file <- file.path(
-      species_output_dir,
-      paste0(
-        sp_safe,
-        "_occupancy_predictions.tif"
-      )
-    )
-
-    terra::writeRaster(
-      sp_raster,
-      raster_file,
-      overwrite = TRUE,
-      wopt = list(
-        datatype = "FLT4S",
-        gdal = c(
-          "COMPRESS=DEFLATE",
-          "PREDICTOR=2"
+      key <- paste(basename(rds_file), sp, sep = "::")
+      if (return == "sf") {
+        all_results[[key]] <- sp_result
+      } else {
+        # Rasterise immediately so full sf results are not held in memory.
+        all_results[[key]] <- .write_species_raster(
+          sp_result,
+          base_raster,
+          prediction_type,
+          file.path(species_dir, paste0(sp_safe, "_", type_suffix, ".tif"))
         )
-      )
-    )
-
-    raster_results[[sp]] <- sp_raster
-
-    rm(
-      sp_sf,
-      mean_raster,
-      median_raster,
-      sd_raster,
-      lower_raster,
-      upper_raster,
-      sp_raster
-    )
-
-    gc(
-      verbose = FALSE
-    )
+      }
+      rm(sp_result)
+      gc(verbose = FALSE)
+    }
+    rm(output, model, species_blocks)
+    gc(verbose = FALSE)
   }
 
-  # =========================================================================
-  # 16. Return raster results
-  # =========================================================================
-
-  invisible(
-    raster_results
-  )
+  invisible(all_results)
 }

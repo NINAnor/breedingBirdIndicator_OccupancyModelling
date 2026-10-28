@@ -183,7 +183,7 @@ invisible(lapply(function_files, source))
 ################################################################################
 
 # Ecosystem to model.
-ecosystemType <- "Forest" # Options: "Forest", "Mountain"
+ecosystemType <- "Mountain" # Options: "Forest", "Mountain"
 
 # Version label used in output folder names.
 # For testing, I use version 1 for route ID effect, and version 2 withour ruote ID
@@ -199,7 +199,8 @@ if (version == 2) {
 fitModel <- FALSE
 runPredictions <- FALSE
 runIndicators <- FALSE
-runPostprocessing <- TRUE
+runPostprocessing <- FALSE
+runMedianValues <- TRUE
 
 # Model type switches.
 fit_single_species <- FALSE # TRUE: PGOcc / spPGOcc per species
@@ -489,6 +490,15 @@ tryCatch(
         "02_pipeline",
         "03_postProcessing",
         "01_process_one_path_for_results.R"
+      ))
+    }
+
+    if (runMedianValues) {
+      source(here::here(
+        "scripts",
+        "02_pipeline",
+        "03_postProcessing",
+        "05_get_median_values.R"
       ))
     }
 

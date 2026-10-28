@@ -23,9 +23,9 @@ USER <- "kwaku" # options: all or kwaku or server or kwaku_parallel
 # If you are using the OneDrive, specify all. But if you are running on
 # your own local disk, specify youur woth USER in the 01_setPaths.R script
 
-vers <- c(2, 1, 2, 1, 2)
-spatial <- c(TRUE, FALSE, FALSE, TRUE, TRUE)
-single_species <- c(FALSE, TRUE, TRUE, TRUE, TRUE)
+vers <- c(1, 1, 1, 1)
+spatial <- c(TRUE, TRUE, FALSE, FALSE)
+single_species <- c(TRUE, FALSE, TRUE, FALSE)
 vars <- data.frame(vers, spatial, single_species)
 
 for (k in 1:nrow(vars)) {
@@ -276,10 +276,10 @@ for (k in 1:nrow(vars)) {
   # 6. MCMC settings
   ################################################################################
 
-  n.batch <- 40
-  batch.length <- 500 #2000
-  n.burn <- 10000 #70000
-  n.thin <- 50 # use 10 for single species.
+  n.batch <- 1000
+  batch.length <- 25
+  n.burn <- 15000
+  n.thin <- 20 # ~500 samples per chain
   n.chains <- 3
 
   n.neighbors <- 3

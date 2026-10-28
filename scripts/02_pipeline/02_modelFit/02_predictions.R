@@ -149,6 +149,7 @@ prediction_results <- generate_occupancy_predictions_for_each_species_with_block
   ##########################################################################
 
   prediction_points = predictionPoints_for_modelling,
+  prediction_type = "both",
 
   det_covariates = det_covs,
   occ_covariates = occ_covs,
@@ -198,7 +199,8 @@ prediction_results <- generate_occupancy_predictions_for_each_species_with_block
 
   plot_width = 8,
   plot_height = 6,
-  plot_dpi = 300
+  plot_dpi = 300,
+  n_omp_threads = n.omp.threads
 )
 
 # prediction_results <- generate_occupancy_predictions_for_each_species(

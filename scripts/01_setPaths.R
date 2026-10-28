@@ -57,7 +57,8 @@ path_finder <- function(name = NULL, user = "all") {
       # Folder where model outputs, predictions,
       # diagnostics, and summaries will be stored.
       #results = "../../ninaProjects/breedingBirdsModelOutput",
-      results = "~/OneDrive - NINA/112635 - Videreutvikling av indikatorer for hekkefugl - Documents/ninaProjects/breedingBirdsModelOutput",
+      #results = "~/OneDrive - NINA/112635 - Videreutvikling av indikatorer for hekkefugl - Documents/ninaProjects/breedingBirdsModelOutput",
+      results = "~/OneDrive - NINA/112635 - Videreutvikling av indikatorer for hekkefugl - Documents/ninaProjects/breedingBirdsOutput",
 
       # Folder where functions are stores
       functions = "scripts/01_functions",
