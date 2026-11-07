@@ -279,6 +279,7 @@ safe_name <- function(x) {
 #' @param is_spatial Logical. Whether the model includes spatial structure.
 #' @param ignore_RE Logical. Whether to ignore random effects during prediction.
 #' @param verbose Logical. Whether to print progress messages.
+#' @param n_omp_threads Integer. OpenMP threads for spatial models.
 #'
 #' @return Prediction object returned by \code{predict()}.
 #'
@@ -306,7 +307,8 @@ safe_name <- function(x) {
   is_spatial,
   ignore_RE = TRUE,
   verbose = TRUE,
-  type = c("occupancy", "detection")
+  type = c("occupancy", "detection"),
+  n_omp_threads = 1L
 ) {
   type <- match.arg(type)
 
@@ -328,6 +330,8 @@ safe_name <- function(x) {
     }
 
     predict_args$coords.0 <- coords_0_mat
+    # Only the spatial predict() methods accept n.omp.threads
+    predict_args$n.omp.threads <- as.integer(n_omp_threads)
   }
 
   # Dispatch to the predict method for the fitted spOccupancy model

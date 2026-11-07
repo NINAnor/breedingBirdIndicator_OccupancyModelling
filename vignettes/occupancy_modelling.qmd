@@ -1,7 +1,7 @@
 ---
 title: "Bayesian Occupancy Modelling Framework for Breeding Bird Indicators"
 author: "Kwaku Peprah Adjei"
-date: "2026-06-19"
+date: "2026-11-07"
 bibliography: references.bib
 crossref:
   fig-title: Figure
@@ -465,3 +465,68 @@ Positive occupancy coefficients indicate that occupancy probability increases wi
 Spatial effects should be interpreted as residual spatial structure after accounting for measured covariates. Large positive spatial effects indicate sites with higher occupancy than expected from the covariates alone.
 
 Species richness estimates summarize community-level occupancy patterns and can be used as breeding bird biodiversity indicators.
+
+# Predicting occupancy and detection across the prediction locations
+
+Fitted models are used to predict occupancy and detection probability at the prediction locations of the ecosystem (see the vignette on prediction points). The predictions are the input to the indicator calculations described in the indicator vignette.
+
+## Selecting the best models
+
+Several model configurations are fitted (single- or multi-species, spatial or non-spatial, and different versions). To avoid predicting from all of them, the models are compared with WAIC (`get_best_model_products()`):
+
+* for the multi-species model, the configuration with the lowest WAIC is selected;
+* for the single-species models, the configuration with the lowest WAIC is selected separately for each species.
+
+The selection is saved in `best_models.csv` (columns `elpd`, `pD`, `WAIC`, `Species`, `file`, `path`, `single_species`, `spatial`) and is used for all later steps.
+
+## Archiving the other model fits
+
+Predictions need a lot of disk space. After the model outputs have been extracted and saved (`model_outputs.RData`), the files of the models that are not selected are copied to an archive folder and removed from the `modelFit` folder. A file is removed only after the archived copy has been verified to have the same size, and files that are already archived are skipped. The step can therefore be repeated safely after an interruption.
+
+## Prediction function
+
+`generate_occupancy_predictions_for_each_species_with_blocks()` predicts for every species in the model files of one folder:
+
+```r
+generate_occupancy_predictions_for_each_species_with_blocks(
+  input_dir = input_path,
+  prediction_points = predictionPoints_for_modelling,
+  prediction_type = "both",
+  det_covariates = det_covs,
+  occ_covariates = occ_covs,
+  base_raster = baseRasterForPreds,
+  model_crs = modelCrs,
+  ecosystem_type = ecosystemType,
+  output_dir = output_path,
+  return = "raster",
+  block_size = 10000,
+  probs = c(0.025, 0.975),
+  use_route_random_effect = use_route_random_effect,
+  ignore_RE = TRUE,
+  save_plots = TRUE,
+  n_omp_threads = n.omp.threads
+)
+```
+
+The main settings are:
+
+* **Blocks:** locations are predicted in blocks of `block_size` locations to limit memory use. Locations with missing covariate values are removed, with a warning.
+* **Fixed effects only:** with `ignore_RE = TRUE` the route-level random effect is ignored, which gives population-level estimates and smoother landscape-scale patterns.
+* **Occupancy and detection:** `prediction_type = "both"` returns both. Yearly covariates (for example `mean_temperature_2020`) are averaged over the years where the model uses the multi-year mean.
+* **Threads:** `n_omp_threads` is passed to the `predict()` methods of the spatial models, which use OpenMP. The non-spatial methods do not take this argument.
+* **Memory:** the best-model folders are processed one at a time in a loop, and memory is released after each folder.
+
+## Prediction outputs
+
+For every species the function writes a folder in the prediction folder (`prediction/`, mirroring the `modelFit` folder structure):
+
+| File | Content |
+|------|---------|
+| `both_predictions.parquet` | Predictions as an `sf` GeoParquet file |
+| `raster_both_predictions.rds` | The same predictions as an R object |
+| `both_predictions.tif` | Predictions as raster layers |
+| `plots/occupancy_probability.png`, `plots/detection_probability.png` | Maps (and pdf versions) |
+
+The predictions have the columns `occupancy_mean`, `occupancy_median`, `occupancy_sd`, `occupancy_lower` and `occupancy_upper`, and the corresponding `detection_*` columns, together with the location identifier and coordinates.
+
+File names do not repeat the species name because the folder already carries it. This keeps the full path under the Windows limit of 260 characters, which the long OneDrive paths of the project can exceed. The function stops with a message if a path is too long, and a shorter output root is then needed.

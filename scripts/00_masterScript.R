@@ -54,6 +54,10 @@ output_root <- normalizePath(
   path_finder("results", user = USER),
   mustWork = FALSE
 )
+archive_root <- normalizePath(
+  path_finder("archive", user = USER),
+  mustWork = FALSE
+)
 
 
 # ==============================================================================
@@ -183,7 +187,7 @@ invisible(lapply(function_files, source))
 ################################################################################
 
 # Ecosystem to model.
-ecosystemType <- "Mountain" # Options: "Forest", "Mountain"
+ecosystemType <- "Forest" # Options: "Forest", "Mountain"
 
 # Version label used in output folder names.
 # For testing, I use version 1 for route ID effect, and version 2 withour ruote ID
@@ -196,11 +200,11 @@ if (version == 2) {
 
 
 # Pipeline switches.
-fitModel <- FALSE
-runPredictions <- FALSE
-runIndicators <- FALSE
-runPostprocessing <- FALSE
-runMedianValues <- TRUE
+fitModel <- TRUE
+runPredictions <- TRUE
+runIndicators <- TRUE
+runPostprocessing <- TRUE
+runMedianValues <- FALSE
 
 # Model type switches.
 fit_single_species <- FALSE # TRUE: PGOcc / spPGOcc per species
@@ -229,7 +233,7 @@ aggregation_spacing <- 1000
 indicator_col <- "mean"
 
 # How many groups should be used in grouping the species
-maxSpeciesInGrps <- 24
+maxSpeciesInGrps <- 40
 
 modelChecks <- TRUE # Should posterior predictive checks be included?
 useExpertData <- TRUE # use expert data for reference values
@@ -242,7 +246,18 @@ covariateSelection <- readxl::read_excel(file.path(
   dataFolder,
   "Covariates",
   "covariatesCodingForModelling.xlsx"
-))
+)) |>
+  # Use degree symbols (and fix spelling) in plot labels
+  dplyr::mutate(
+    `Covariate definition` = dplyr::recode_values(
+      `Covariate definition`,
+      "Slope (degrees)" ~ "Slope (\u00B0)",
+      "Aspect (degrees)" ~ "Aspect (\u00B0)",
+      "Latitude (degree North)" ~ "Latitude (\u00B0N)",
+      "Temperature (degree celcius)" ~ "Temperature (\u00B0C)",
+      default = `Covariate definition`
+    )
+  )
 
 if (ecosystemType %in% "Forest") {
   # Detection covariates affect the observation process.
@@ -271,10 +286,10 @@ if (ecosystemType %in% "Forest") {
 # 6. MCMC settings
 ################################################################################
 
-n.batch <- 40
-batch.length <- 500 #2000
-n.burn <- 10000 #70000
-n.thin <- 50 # use 10 for single species.
+n.batch <- 1000
+batch.length <- 25
+n.burn <- 15000
+n.thin <- 50 # ~200 samples per chain
 n.chains <- 3
 
 n.neighbors <- 3
@@ -337,7 +352,7 @@ path_to_indicators <- file.path(
 # if runPostprocessing, specify whether you are interested in comparing all outputs from
 # the various models within the same ecosystem or that you are just interested in postprocessing
 # for the current configurations
-compareMultipleOutputs <- TRUE
+compareMultipleOutputs <- FALSE
 
 if (!compareMultipleOutputs) {
   path_to_postProcessing <- file.path(
@@ -451,6 +466,8 @@ tryCatch(
     ##########################################################################
 
     if (runPredictions) {
+      use_best_model_file <- TRUE
+
       source(here::here(
         "scripts",
         "02_pipeline",
@@ -467,6 +484,16 @@ tryCatch(
     ##########################################################################
 
     if (runIndicators) {
+      use_best_model_file <- TRUE
+      run_sensitivity <- TRUE
+
+      # Bootstrap settings. Use small values (e.g. n.boot = 50) for a quick check.
+      boot_settings_compare <- list(n.boot = 100, n.Samps = 5000)
+      boot_settings_standard <- list(n.boot = 500, n.Samps = 5000)
+
+      sensitivity_quantiles <- c(0.5, 0.6, 0.7, 0.8, 0.9)
+      boot_settings_sensitivity <- list(n.boot = 100, n.Samps = 5000)
+
       if (useExpertData) {
         source(here::here(
           "scripts",

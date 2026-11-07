@@ -20,6 +20,9 @@ path_finder <- function(name = NULL, user = "all") {
       # diagnostics, and summaries will be stored.
       results = "../modelResults",
 
+      # Folder to save archive information
+      archive = "P:\\112635_videreutvikling_av_indikatorer_for_hekkefugl",
+
       # Folder where functions are stores
       functions = "scripts/01_functions",
 
@@ -38,6 +41,9 @@ path_finder <- function(name = NULL, user = "all") {
       # Folder where model outputs, predictions,
       # diagnostics, and summaries will be stored.
       results = "../breedingBirdsModelOutput",
+
+      # Folder to save archive information
+      archive = "P:\\112635_videreutvikling_av_indikatorer_for_hekkefugl",
 
       # Folder where functions are stores
       functions = "scripts/01_functions",
@@ -60,6 +66,9 @@ path_finder <- function(name = NULL, user = "all") {
       #results = "~/OneDrive - NINA/112635 - Videreutvikling av indikatorer for hekkefugl - Documents/ninaProjects/breedingBirdsModelOutput",
       results = "~/OneDrive - NINA/112635 - Videreutvikling av indikatorer for hekkefugl - Documents/ninaProjects/breedingBirdsOutput",
 
+      # Folder to save archive information
+      archive = "P:\\112635_videreutvikling_av_indikatorer_for_hekkefugl/archive_results",
+
       # Folder where functions are stores
       functions = "scripts/01_functions",
 
@@ -79,6 +88,9 @@ path_finder <- function(name = NULL, user = "all") {
       # diagnostics, and summaries will be stored.
       #results = "../../ninaProjects/breedingBirdsModelOutput",
       results = "~/OneDrive - NINA/112635 - Videreutvikling av indikatorer for hekkefugl - Documents/ninaProjects/breedingBirdsModelOutput",
+
+      # Folder to save archive information
+      archive = "P:\\112635_videreutvikling_av_indikatorer_for_hekkefugl",
 
       # Folder where functions are stores
       functions = "scripts/01_functions",

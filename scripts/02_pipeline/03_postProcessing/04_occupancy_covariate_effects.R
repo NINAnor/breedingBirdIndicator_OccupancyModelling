@@ -94,9 +94,20 @@ extract_median_prediction <- function(
   # Read prediction object
   dat <- readRDS(short_path(rds_file))
 
-  # Keep only median prediction
-  expected <- dat |>
-    dplyr::select(median)
+  # Keep only the median prediction. Prediction files with both occupancy and
+  # detection use `occupancy_median`; older files use `median`.
+  value_col <- intersect(c("occupancy_median", "median"), names(dat))[1]
+
+  if (is.na(value_col)) {
+    stop(
+      "No median prediction column in: ",
+      rds_file,
+      call. = FALSE
+    )
+  }
+
+  expected <- dat[value_col]
+  names(expected)[names(expected) == value_col] <- "median"
 
   # Coordinates of prediction points
   expected_xy <- sf::st_coordinates(expected)
@@ -137,11 +148,24 @@ extract_median_prediction <- function(
 # Prepare prediction paths
 # =============================================================================
 
-best_models$prediction_path <- gsub(
-  "modelFit",
-  "prediction_outputs",
+# Predictions are written to "prediction" (see 02_predictions.R);
+# "prediction_outputs" is used as a fallback for older runs.
+resolve_prediction_path <- function(model_path) {
+  candidates <- c(
+    gsub("modelFit", "prediction", model_path, fixed = TRUE),
+    gsub("modelFit", "prediction_outputs", model_path, fixed = TRUE)
+  )
+
+  existing <- candidates[dir.exists(candidates)]
+
+  if (length(existing) > 0) existing[1] else candidates[1]
+}
+
+best_models$prediction_path <- vapply(
   best_models$path,
-  fixed = TRUE
+  resolve_prediction_path,
+  character(1),
+  USE.NAMES = FALSE
 )
 
 

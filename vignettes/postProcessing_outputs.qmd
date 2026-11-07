@@ -1,7 +1,7 @@
 ---
 title: "Working with Model Outputs"
 author: "Kwaku Peprah Adjei"
-date: "2026-06-22"
+date: "2026-11-07"
 bibliography: references.bib
 crossref:
   fig-title: Figure
@@ -322,6 +322,72 @@ save_plot(
 ```
 
 ---
+
+# Best models
+
+The configuration with the lowest WAIC is selected for the multi-species model, and separately for each species for the single-species models. The selection is saved in `best_models.csv` in the post-processing folder and is used to decide which model outputs are plotted (`best_models = best_models`) and from which folders predictions are read.
+
+```r
+p_species_occ <- plot(
+  outputs,
+  type = "error",
+  components = "occ_effects",
+  best_models = best_models,
+  covariate_names = covariateSelection,
+  n.cols = 3
+)
+```
+
+The covariate names shown on the plots come from the `Covariate definition` column of `covariatesCodingForModelling.xlsx`. Units are written with symbols (for example `Slope (°)`, `Latitude (°N)` and `Temperature (°C)`), which is set when the workbook is read in the master script.
+
+# Occupancy and detection relationships with covariates
+
+`plot_occupancy_covariates()` plots predicted occupancy or detection probability against each covariate, with a smoother, for every species. The predictions of each species are extracted at the survey locations from a 2-km raster with bilinear interpolation. The multi-species PDF (`multi_species_richCovRel_all_species.pdf`) has one page per species.
+
+```r
+plot_occupancy_covariates(
+  data = pred_vals,
+  occ_covs = occ_covs,
+  occupancy_col = "Anthus_pratensis",
+  covariate_names = covariateSelection,
+  y_label = "Occupancy probability"
+)
+```
+
+Two settings keep the plots fast and the files small:
+
+* `smooth_method = "bam"` (default) fits a GAM (`mgcv::bam`, `y ~ s(x, bs = "cs")`). `smooth_method = "loess"` is available but is very slow with many points because the standard errors are expensive. With about 21,000 points, loess took about 14 s per panel and the GAM less than 0.5 s, with almost identical curves. This reduced the run time of the whole post-processing script from about 40 minutes to about 1.5 minutes.
+* `n_sample = 5000` draws a random sample of locations without replacement for the points and the smoother (`n_sample = NULL` uses all locations). The sample is reproducible through `seed`, and the random-number state of the session is restored afterwards.
+
+Repeated surveys at the same location share the same covariate values and predictions, so the number of distinct points is much lower than the number of rows. Sampling therefore reduces the run time much more than it reduces the size of the PDF.
+
+# Detection effects
+
+`05_detection_effects.R` is sourced at the end of the post-processing script and produces two sets of figures for each model group:
+
+1. **Detection probability against the detection covariates** (`<group>_detection_covariate_relationships.pdf`), one page per species. Detection covariates that are stored per year (for example `mean_temperature_2020`) are averaged over the years.
+2. **Detection probability against occupancy probability** (`<group>_detection_vs_occupancy.png/pdf`), with one panel per species, made with `plot_detection_vs_occupancy()`. Up to 2,000 distinct locations per species are shown with a smoother.
+
+```r
+p_det_occ <- plot_detection_vs_occupancy(occ_det_long)
+```
+
+Occupancy and detection are estimated in the same model and can share covariates, so a relationship between the two should not be interpreted as causal.
+
+# Indicator maps and summaries
+
+When the indicator outputs exist (see the indicator vignette), the post-processing script reads them and creates, for each model group:
+
+* **Validation:** the scaled indicator (the mean across species of occupancy scaled against the regional reference values) plotted against the occupancy covariates (`<group>_richCovRel.png/pdf`).
+* **Maps:** the unscaled mean occupancy across the species with an expert reference (`<group>_mean_occupancy.png`) and the scaled indicator (`<group>_scaled_indicator.png`), in the `indicator_plots` folder.
+* **Regional estimates:** the bootstrap mean and 95% interval of the indicator for each nature region and nationally (`indicator_regional_estimates.png`).
+* **Reference values:** a tile plot of the reference value (`x100`) of each species and region (`x100_reference_values.png`).
+
+Models are labelled from their folder names. Results of older versions that do not contain the new output structure are ignored.
+
+# Running the complete post-processing
+
+All of the steps above are run by `01_process_one_path_for_results.R`. It extracts the model outputs (or loads `model_outputs.RData`), extracts the covariates at the survey locations, loads the best models, creates and saves the model figures, validates the indicator, plots the indicator results, and then sources the occupancy and detection covariate-effects scripts. The figures are written to the post-processing folder; with `compareMultipleOutputs <- TRUE` this is `postProcessing_outputs/multipleOutputs/<ecosystem>/`.
 
 # Recommended Workflow
 

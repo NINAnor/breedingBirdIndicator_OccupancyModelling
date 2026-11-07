@@ -23,9 +23,9 @@ USER <- "kwaku" # options: all or kwaku or server or kwaku_parallel
 # If you are using the OneDrive, specify all. But if you are running on
 # your own local disk, specify youur woth USER in the 01_setPaths.R script
 
-vers <- c(1, 1, 1, 1)
-spatial <- c(TRUE, TRUE, FALSE, FALSE)
-single_species <- c(TRUE, FALSE, TRUE, FALSE)
+vers <- 2 #c(2, 2, 2, 2)
+spatial <- FALSE # c(TRUE, TRUE, FALSE, FALSE)
+single_species <- FALSE # c(TRUE, FALSE, TRUE, FALSE)
 vars <- data.frame(vers, spatial, single_species)
 
 for (k in 1:nrow(vars)) {
@@ -59,6 +59,10 @@ for (k in 1:nrow(vars)) {
   expertFolder <- path_finder("expertData", user = USER)
   output_root <- normalizePath(
     path_finder("results", user = USER),
+    mustWork = FALSE
+  )
+  archive_root <- normalizePath(
+    path_finder("archive", user = USER),
     mustWork = FALSE
   )
 
@@ -199,7 +203,7 @@ for (k in 1:nrow(vars)) {
   }
 
   # Pipeline switches.
-  fitModel <- TRUE
+  fitModel <- FALSE
   runPredictions <- TRUE
   runIndicators <- FALSE
   runPostprocessing <- FALSE
@@ -248,7 +252,18 @@ for (k in 1:nrow(vars)) {
     dataFolder,
     "Covariates",
     "covariatesCodingForModelling.xlsx"
-  ))
+  )) |>
+    # Use degree symbols (and fix spelling) in plot labels
+    dplyr::mutate(
+      `Covariate definition` = dplyr::recode_values(
+        `Covariate definition`,
+        "Slope (degrees)" ~ "Slope (\u00B0)",
+        "Aspect (degrees)" ~ "Aspect (\u00B0)",
+        "Latitude (degree North)" ~ "Latitude (\u00B0N)",
+        "Temperature (degree celcius)" ~ "Temperature (\u00B0C)",
+        default = `Covariate definition`
+      )
+    )
 
   if (ecosystemType %in% "Forest") {
     # Detection covariates affect the observation process.
@@ -319,15 +334,15 @@ for (k in 1:nrow(vars)) {
     spatial_dir
   )
 
-  path_to_predictions <- file.path(
-    "../../ninaProjects/breedingBirdsModelOutput",
-    #output_root,
-    "prediction_outputs",
-    version_label,
-    ecosystemType,
-    species_dir,
-    spatial_dir
-  )
+  #path_to_predictions <- file.path(
+  #  "../../ninaProjects/breedingBirdsModelOutput",
+  #output_root,
+  #  "prediction_outputs",
+  #  version_label,
+  #  ecosystemType,
+  #  species_dir,
+  #  spatial_dir
+  #)
 
   path_to_indicators <- file.path(
     output_root,
@@ -454,6 +469,8 @@ for (k in 1:nrow(vars)) {
       ##########################################################################
 
       if (runPredictions) {
+        use_best_model_file <- TRUE
+
         source(here::here(
           "scripts",
           "02_pipeline",

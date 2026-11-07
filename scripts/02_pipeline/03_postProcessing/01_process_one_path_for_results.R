@@ -266,14 +266,29 @@ if ("forestType" %in% all_covariates) {
 # combination and is used to determine which model outputs should be plotted.
 # -----------------------------------------------------------------------------
 
+#---------------------------------------------------------------------------
+# Identify best models
+#---------------------------------------------------------------------------
+
+best_model_file <- file.path(
+  output_root,
+  "postProcessing_outputs",
+  "multipleOutputs",
+  ecosystemType,
+  "best_models.csv"
+)
+
+if (!file.exists(best_model_file)) {
+  source(here::here(
+    "scripts",
+    "02_pipeline",
+    "03_postProcessing",
+    "03_select_best_model_params.R"
+  ))
+}
+
 best_models <- readr::read_csv(
-  file.path(
-    output_root,
-    "postProcessing_outputs",
-    "multipleOutputs",
-    ecosystemType,
-    "best_models.csv"
-  ),
+  best_model_file,
   show_col_types = FALSE
 )
 
@@ -494,12 +509,30 @@ if (compareMultipleOutputs) {
 #  )
 #]
 
+# Label for an indicator output file, from its folder:
+#   .../compareMultipleOutputs/Mountain/multiple_species/all_results.rds
+#       -> multiple_species
+# Outside compare mode the model folders are combined, e.g.
+#   .../Mountain/multiple_species_model/spatialModel/all_results.rds
+#       -> multiple_species_model_spatialModel
+indicator_label <- function(file) {
+  if (compareMultipleOutputs) {
+    basename(dirname(file))
+  } else {
+    paste(
+      basename(dirname(dirname(file))),
+      basename(dirname(file)),
+      sep = "_"
+    )
+  }
+}
+
 exp_rds_files <- rds_files[
   grepl(
     paste0(
       "[/\\\\]",
       ecosystemType,
-      "[/\\\\].*[/\\\\]expected_richness[/\\\\]all_results\\.rds$"
+      "[/\\\\].*[/\\\\]all_results\\.rds$"
     ),
     rds_files,
     ignore.case = TRUE
@@ -513,6 +546,23 @@ exp_rds_files <- rds_files[
 exp_richness_rds_files <- lapply(
   exp_rds_files,
   readRDS
+)
+
+# Keep results from the current method (they contain `indicator_vals`);
+# older all_results.rds files from previous versions are ignored
+has_indicator <- vapply(
+  exp_richness_rds_files,
+  function(x) !is.null(x$indicator_vals),
+  logical(1)
+)
+exp_rds_files <- exp_rds_files[has_indicator]
+exp_richness_rds_files <- exp_richness_rds_files[has_indicator]
+
+exp_labels <- vapply(
+  exp_rds_files,
+  indicator_label,
+  character(1),
+  USE.NAMES = FALSE
 )
 
 
@@ -540,7 +590,8 @@ predCoords <- breeding_bird_data_for_modelling %>%
 median_values <- lapply(
   exp_richness_rds_files,
   function(x) {
-    expected <- x$expected_richness
+    # Per-location scaled indicator (mean of the scaled species values)
+    expected <- x$indicator_vals
 
     expected_xy <- sf::st_coordinates(
       expected
@@ -562,7 +613,7 @@ median_values <- lapply(
         resolution = 2000,
         crs = sf::st_crs(expected)$wkt
       ),
-      field = "median"
+      field = "scaled_indicator"
     )
 
     # Extract expected richness at bird prediction locations
@@ -586,11 +637,7 @@ median_values <- lapply(
 #       -> single_species
 # -----------------------------------------------------------------------------
 
-model_names <- basename(
-  dirname(
-    dirname(exp_rds_files)
-  )
-)
+model_names <- exp_labels
 
 
 # -----------------------------------------------------------------------------
@@ -713,7 +760,12 @@ indicator_parquet_files <- parquet_files[
   grepl(
     "[/\\\\]indicator_vals\\.parquet$",
     parquet_files
-  )
+  ) &
+    grepl(
+      paste0("[/\\\\]", ecosystemType, "[/\\\\]"),
+      parquet_files,
+      ignore.case = TRUE
+    )
 ]
 
 
@@ -737,9 +789,11 @@ expected_richness_sf <- lapply(
 # Name the expected-richness datasets
 # -----------------------------------------------------------------------------
 
-names(expected_richness_sf) <- c(
-  "multiple_species",
-  "single_species"
+names(expected_richness_sf) <- vapply(
+  indicator_parquet_files,
+  indicator_label,
+  character(1),
+  USE.NAMES = FALSE
 )
 
 
@@ -774,7 +828,7 @@ for (i in seq_along(expected_richness_sf)) {
   expected_sf <- expected_richness_sf[[i]]
 
   # ---------------------------------------------------------------------------
-  # Expected richness
+  # Mean occupancy across the species with an expert reference (unscaled)
   # ---------------------------------------------------------------------------
 
   p_richness <- ggplot(
@@ -790,9 +844,9 @@ for (i in seq_along(expected_richness_sf)) {
 
     scale_fill_viridis_c(
       option = "viridis",
-      limits = c(2, 13),
-      breaks = seq(2, 12, by = 2),
-      name = "Expected\nrichness",
+      limits = c(0, 1),
+      breaks = seq(0, 1, by = 0.2),
+      name = "Mean\noccupancy",
       na.value = "transparent"
     ) +
 
@@ -819,13 +873,13 @@ for (i in seq_along(expected_richness_sf)) {
       legend.position = "right"
     )
 
-  # Save expected-richness map
+  # Save mean-occupancy map
   ggsave(
     filename = file.path(
       plot_dir,
       paste0(
         model_name,
-        "_expected_richness.png"
+        "_mean_occupancy.png"
       )
     ),
     plot = p_richness,
@@ -835,7 +889,8 @@ for (i in seq_along(expected_richness_sf)) {
   )
 
   # ---------------------------------------------------------------------------
-  # Scaled indicator
+  # Scaled indicator: mean across species of occupancy scaled against the
+  # regional reference value (x100) of each species
   # ---------------------------------------------------------------------------
 
   p_scaled <- ggplot(
@@ -897,6 +952,145 @@ for (i in seq_along(expected_richness_sf)) {
 }
 
 
+# -----------------------------------------------------------------------------
+# Regional and national indicator estimates (bootstrap mean and 95% interval)
+# and the x100 reference values of each species and region
+# -----------------------------------------------------------------------------
+
+indicator_root <- if (compareMultipleOutputs) {
+  file.path(output_root, "indicators_outputs", "compareMultipleOutputs")
+} else {
+  file.path(output_root, "indicators_outputs")
+}
+
+# Read the csv table of the given name from every model folder
+read_indicator_csv <- function(file_name) {
+  files <- list.files(
+    indicator_root,
+    pattern = paste0("^", file_name, "\\.csv$"),
+    full.names = TRUE,
+    recursive = TRUE
+  )
+
+  files <- files[
+    grepl(
+      paste0("[/\\\\]", ecosystemType, "[/\\\\]"),
+      files,
+      ignore.case = TRUE
+    )
+  ]
+
+  if (length(files) == 0) {
+    return(NULL)
+  }
+
+  dplyr::bind_rows(
+    lapply(
+      files,
+      function(f) {
+        x <- utils::read.csv(f)
+        x$model <- indicator_label(f)
+        x
+      }
+    )
+  )
+}
+
+rep_vals <- read_indicator_csv("representative_indicator_vals")
+
+if (!is.null(rep_vals)) {
+  rep_vals$region <- factor(
+    rep_vals$region,
+    levels = c(
+      "National",
+      sort(setdiff(unique(rep_vals$region), "National"))
+    )
+  )
+
+  p_regional <- ggplot(
+    rep_vals,
+    aes(x = region, y = mean, colour = model)
+  ) +
+
+    geom_pointrange(
+      aes(ymin = lower, ymax = upper),
+      position = position_dodge(width = 0.5)
+    ) +
+
+    scale_y_continuous(
+      limits = c(0, 1)
+    ) +
+
+    labs(
+      x = NULL,
+      y = "Scaled indicator\n(bootstrap mean and 95% interval)",
+      colour = "Model"
+    ) +
+
+    theme_minimal(
+      base_size = 14
+    ) +
+
+    theme(
+      legend.position = "bottom"
+    )
+
+  ggsave(
+    filename = file.path(
+      plot_dir,
+      "indicator_regional_estimates.png"
+    ),
+    plot = p_regional,
+    width = 8,
+    height = 5,
+    dpi = 300
+  )
+}
+
+x100_vals <- read_indicator_csv("x100_values")
+
+if (!is.null(x100_vals)) {
+  p_x100 <- ggplot(
+    x100_vals,
+    aes(x = bio_region, y = species, fill = reference_value)
+  ) +
+
+    geom_tile() +
+
+    scale_fill_viridis_c(
+      option = "viridis",
+      limits = c(0, 1),
+      name = "x100"
+    ) +
+
+    facet_wrap(~model) +
+
+    labs(
+      x = NULL,
+      y = NULL
+    ) +
+
+    theme_minimal(
+      base_size = 12
+    ) +
+
+    theme(
+      panel.grid = element_blank()
+    )
+
+  ggsave(
+    filename = file.path(
+      plot_dir,
+      "x100_reference_values.png"
+    ),
+    plot = p_x100,
+    width = 9,
+    height = 6,
+    dpi = 300
+  )
+}
+
+
 # =============================================================================
 # 13. OCCUPANCY COVARIATE EFFECTS
 # =============================================================================
@@ -906,4 +1100,17 @@ for (i in seq_along(expected_richness_sf)) {
 
 source(
   "scripts/02_pipeline/03_postProcessing/04_occupancy_covariate_effects.R"
+)
+
+
+# =============================================================================
+# 14. DETECTION EFFECTS
+# =============================================================================
+#
+# Detection probability against the detection covariates and against
+# occupancy probability. Uses the objects created by the script above.
+# -----------------------------------------------------------------------------
+
+source(
+  "scripts/02_pipeline/03_postProcessing/05_detection_effects.R"
 )

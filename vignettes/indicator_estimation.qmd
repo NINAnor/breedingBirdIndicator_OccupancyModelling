@@ -1,7 +1,7 @@
 ---
-title: "Calculating Scaled Ecosystem Richness Indicators"
+title: "Calculating Scaled Ecosystem Condition Indicators from Species Occupancy"
 author: "Kwaku Peprah Adjei"
-date: "2026-06-21"
+date: "2026-11-07"
 bibliography: references.bib
 crossref:
   fig-title: Figure
@@ -32,143 +32,62 @@ knitr::opts_chunk$set(echo = TRUE)
 
 Ecosystem condition describes the quality of an ecosystem in terms of its physical, chemical, structural, compositional, and functional characteristics, and its capacity to maintain ecological processes and support biodiversity over time [@maes2018; @ipbes2019]. Assessment of ecosystem condition generally requires the use of indicators, which are measurable variables that summarize attributes of ecosystem structure, composition, or functioning [@noss1990]. Such indicators provide a practical means of monitoring ecosystems and quantifying changes resulting from natural or anthropogenic pressures.
 
-Species richness is among the most widely used indicators of ecosystem composition because it integrates information across multiple taxa and has strong links to ecosystem functioning and resilience [@hooper2005]. In this workflow, species occupancy predictions (see [vignette](https://github.com/NINAnor/breedingBirdIndicator_OccupancyModelling/blob/main/vignettes/occupancy_modelling.qmd)) are used to estimate expected species richness, which serves as an indicator of ecosystem condition.
+Breeding bird communities integrate information across multiple taxa and are widely used as indicators of ecosystem composition [@hooper2005]. In this workflow, species occupancy predictions (see [vignette](https://github.com/NINAnor/breedingBirdIndicator_OccupancyModelling/blob/main/vignettes/occupancy_modelling.qmd)) are scaled against reference values and combined across species into an indicator of ecosystem condition.
 
 ## Reference conditions and scaling
 
 Assessing ecosystem condition requires comparison with a reference condition. Reference conditions represent ecosystem states against which current conditions can be evaluated and may correspond to natural, historical, least-disturbed, or management-defined states [@stoddard2006]. A reference value is the numerical value of an indicator associated with the reference condition. Current ecosystem condition can then be expressed relative to the reference value, providing a standardized measure of ecological condition.
 
-In this workflow, two approaches are used to define reference conditions. First, protected areas are used as a proxy for reference ecological conditions. Species occupancy predictions are interpreted as landscape-level mean occupancy probabilities, and expected species richness is calculated as the sum of species occupancy probabilities across the 1-km prediction grid. Regional reference values are then derived from predictions within protected areas and used to scale expected species richness relative to the best available contemporary conditions within each biogeographic region.
+The indicator described here uses **expert-derived reference conditions for each species**. For every species, experts assigned a reference category that expresses how the species' occupancy under reference conditions compares with its predicted occupancy across the region. Each category is linked to a fixed quantile of the species' predicted occupancy distribution within a nature region. The value of that quantile is the species' reference value (called `x100` below) in that region. Predicted occupancy at every location is then scaled against its reference value, so that a location with occupancy equal to or above the reference value receives the maximum scaled value of 1.
 
-Second, expert-derived occurrence probabilities are used to define an alternative reference condition. Experts provide species occurrence probabilities under the assumption of perfect detection, and these probabilities are summed across species to obtain an expert-based expected species richness. This value is used as the reference against which modelled ecosystem richness is scaled.
-
-This vignette describes the workflow for calculating scaled ecosystem richness indicators from species occupancy predictions. The workflow combines gridded species prediction outputs with biogeographic regions and reference conditions to produce standardized indicators of ecosystem condition. The resulting indicator expresses modelled species richness relative to a defined reference condition, allowing ecosystem condition to be compared across spatial units and reference-condition scenarios.
+An earlier approach, which used protected areas as proxies for reference conditions and scaled expected species richness (the sum of occupancy probabilities across species), is still available and is described briefly at the end of this vignette (@sec-protected).
 
 ## Overview
 
-The workflow consists of three main steps:
+The workflow consists of the following steps:
 
-1. Loading and harmonising biogeographic regions.
-2. Loading and harmonising protected areas representing reference conditions.
-3. Calculating scaled ecosystem richness from species occupancy predictions.
+1. Obtain the expert reference quantile for each species.
+2. Load the nature regions used for regional reference values and summaries.
+3. Scale the occupancy prediction of every species and location against the species' regional reference value (`x100`).
+4. Average the scaled values across species at each location.
+5. Summarise the indicator for each region and nationally with bootstrapped beta models.
+6. Assess the sensitivity of the results to the reference quantile.
+7. Save and plot the results.
 
-Biogeographic regions are used to account for natural environmental variation and to provide a spatial framework for defining and comparing reference conditions. Two alternative approaches are used to define reference conditions. First, protected areas are used as proxies for reference conditions because they are assumed to represent ecosystems subject to relatively low levels of anthropogenic disturbance. Regional reference values are derived from species richness predicted within these areas. Second, expert-derived species occurrence probabilities under perfect detection are used to calculate an alternative reference value based on expert expected species richness.
+The indicator is estimated separately for each group of best models (multi-species and single-species models) and each ecosystem type.
 
-Species occupancy predictions are aggregated across species to estimate expected species richness on a regular 1-km grid. These richness estimates are then scaled relative to the selected reference values, producing standardized indicators of ecosystem condition that can be compared across biogeographic regions.
+# Expert reference quantiles
 
-# Load shape files
+## Reference categories and quantiles
 
-## Load biogeographic regions
+The experts' reference categories are read from the species reference workbook for the ecosystem (for example `mountain_experts_refs.xlsx`) and matched to the species list (`SPECIES_SELECTION.xlsx`) by Norwegian species name. Species without a reference category are excluded from the indicator. The experts were given the chance to look at the average occupancy probability estimated from the model and were asked if the occupancy probability of the species will be higher (`høyere`), lower (`lavere` ) or the same (`samme`) as is in the model given a perfect detection.
 
-Biogeographic regions are used to summarize indicators regionally. The source shapefile is read, aligned with the Norway boundary, transformed to the model coordinate reference system, and saved as a GeoParquet file for subsequent analyses.
+Each category is converted to a quantile with `reference_quantile_lookup()`. The defaults are:
 
-```r
-bio_regions <- get_biogeographic_region(
-  input_file = file.path(
-    geoSpatFolder,
-    "BiogeographicalRegions",
-    "Norway_Biogeography",
-    "Original",
-    "biogeografiske_regioner_omrade.shp"
-  ),
-  norway_boundary = norway_boundary,
-  modelCrs = modelCrs,
-  output_file = file.path(
-    dataFolder,
-    "processedData",
-    "biogeographic_regions",
-    "biogeographic_regions.parquet"
-  ),
-  overwrite = FALSE
-)
-```
+| Reference category | Reference quantile |
+|--------------------|--------------------|
+| `samme`            | 0.75               |
+| `høyere`           | 0.95               |
 
-## Load protected areas
+These values are fixed within an analysis. A quantile can be changed by naming the category, for example `reference_quantile_lookup(samme = 0.6)`. All other categories keep their defaults. Quantiles must be strictly between 0 and 1.
 
-Protected areas are used as proxies for reference conditions. These areas are assumed to represent relatively intact ecosystems and provide benchmarks against which ecosystem condition can be evaluated. The protected-area layer is read from the NINA geodatabase, harmonised with the Norway boundary and model coordinate reference system, and saved as a GeoParquet file.
+`get_reference_quantiles()` reads the workbooks and returns one reference quantile per species:
 
 ```r
-protected_regions <- get_protected_areas(
-  input_file = file.path(
-    geoSpatFolder,
-    "ProtectedSites",
-    "Norway_ProtectedAreas",
-    "Original",
-    "Natur_Vern_norge_med_svalbard_25833.gdb"
-  ),
-  norway_boundary = norway_boundary,
-  modelCrs = modelCrs,
-  output_file = file.path(
-    dataFolder,
-    "processedData",
-    "protected_regions",
-    "protected_regions.parquet"
-  ),
-  layer = "Naturvernområde",
-  overwrite = FALSE
-)
-```
-
-# Calculate scaled ecosystem expected richness
-
-## Using protected areas
-The function `calculate_scaled_ecosystem_richness()` reads species prediction outputs, extracts predicted occupancy values, calculates expected richness, and scales richness relative to protected-area reference conditions within each biogeographic region.
-
-```r
-scaled_richness <- calculate_scaled_ecosystem_richness(
-  input_dir = path_to_predictions,
-  reference_shape = protected_regions,
-  categorisation_shape = bio_regions,
+reference_data <- get_reference_quantiles(
+  expert_folder = expertFolder,
   ecosystem_type = ecosystemType,
-  value_col = indicator_col,
-  point_spacing = aggregation_spacing,
-  forest_only_strict = ecosystemType == "Forest",
-  na.rm = TRUE,
-  output_dir = path_to_indicators,
-  save_outputs = TRUE,
-  overwrite = FALSE
+  ref_quantiles = reference_quantile_lookup()
 )
 ```
 
-For forest ecosystems, the workflow can restrict the reference condition to protected forest ecosystems. When `forest_only_strict = TRUE`, only protected areas classified as national parks or nature reserves and designated as forest protection areas are retained.
+The function warns about categories that are not in the lookup and about expert species that are missing from the species list, because these species would otherwise be dropped silently.
 
-## Using expert opinions
+## Nature regions
 
-```{r}
-#| eval: false
+Reference values are calculated separately for each nature region, which accounts for natural variation in occupancy across environmental gradients. The regions are derived from the county boundaries, aligned to the model coordinate reference system, and saved as a GeoParquet file:
 
-# Obtain the reference values from experts
-
-if (ecosystemType %in% "Mountain") {
-  species_reference_vals <- readr::read_csv2(
-    file.path(
-      expertFolder,
-      "referenceValues",
-      "mountain_reference_vals.csv"
-    )
-  ) %>%
-    dplyr::mutate(Values = as.numeric(Values))
-} else if (ecosystemType %in% "Forest") {
-  species_reference_vals <- readr::read_csv2(
-    file.path(
-      expertFolder,
-      "referenceValues",
-      "forest_reference_vals.csv"
-    )
-  ) %>%
-    dplyr::mutate(Values = as.numeric(Values))
-}
-
-# Estimate scaled indicators
-gdb <- paste0(
-  geoSpatFolder,
-  "/AdministrativeUnits/",
-  "Norway_AdministrativeUnits/Original/Norway_County/",
-  "versjon2025/Administrative enheter fylker FGDB-format/",
-  "Basisdata_0000_Norge_25833_Fylker_FGDB/",
-  "Basisdata_0000_Norge_25833_Fylker_FGDB.gdb"
-)
-
+```r
 bio_regions <- get_nature_regions(
   input_file = gdb,
   modelCrs = modelCrs,
@@ -187,84 +106,195 @@ bio_regions <- get_nature_regions(
     "figures"
   )
 )
+```
 
+# Scaling species occupancy
 
-scaled_richness <- calculate_scaled_ecosystem_richness_with_expert_data(
+## Reference value (x100)
+
+Predictions are the posterior median or mean occupancy probability of each species at every prediction location. Locations are assigned to nature regions once, because all species share the same prediction locations. A location that falls in more than one region is assigned to the first; locations outside all regions are given no region and excluded from the regional summaries.
+
+For species $s$ with reference quantile $q_s$ and region $r$, the reference value is the $q_s$-quantile of predicted occupancy over all locations in the region:
+
+$$
+x_{100,s,r} = Q_{q_s}\left(\psi_{s,i} : i \in r\right),
+$$ {#eq-x100}
+
+where $\psi_{s,i}$ is the predicted mean occupancy (`occupancy_mean`) of species $s$ at location $i$. A reference value is set to missing, and a warning is issued, if it is not positive.
+
+## Scaling
+
+Occupancy is scaled with `ecTools::ec_normalise()` using $x_{100,s,r}$ as the value that corresponds to the reference condition. With the lower bound $x_0 = 0$ and the default linear function, the scaled value is
+
+$$
+z_{s,i} = \min\left(1,\; \max\left(0,\;
+\frac{\psi_{s,i} - x_0}{x_{100,s,r} - x_0}
+\right)\right),
+$$ {#eq-scaled}
+
+so that $z_{s,i} = 1$ whenever occupancy is at or above the reference value, and $z_{s,i}$ decreases linearly to 0 as occupancy decreases to $x_0$. Truncation to $[0, 1]$ can be switched off with `truncation = FALSE`.
+
+The scaling is implemented in `scale_species_occupancy_by_region()`, which returns
+
+- an `sf` object with the scaled value of every species at every location, together with the nature region and geometry, and
+- a table of the reference values ($x_{100}$) for each region and species.
+
+## Mean across species
+
+The location-level indicator is the mean of the scaled species values:
+
+$$
+I_i = \frac{1}{S_i}\sum_{s=1}^{S_i} z_{s,i},
+$$ {#eq-indicator}
+
+where $S_i$ is the number of species with a value at location $i$. Missing species values are ignored by default (`na.rm = TRUE`). Because each species is scaled against its own reference value, species that are naturally common and species that are naturally rare contribute on the same scale.
+
+`species_specific_scaling()` reads the species predictions (only the occupancy column and geometry are kept to reduce memory use), calls `scale_species_occupancy_by_region()`, and adds the mean across species as `mean_scaled`.
+
+# Regional and national estimates
+
+## Regional estimates
+
+For each nature region, the scaled location values $I_i$ are summarised with a bootstrap:
+
+1. Draw $n = \min(n_\text{Samps}, N_r)$ values with replacement from the $N_r$ valid values of the region.
+2. Fit an intercept-only beta regression, $I \sim \text{Beta}$, with `betareg::betareg()`.
+3. Back-transform the intercept to the response scale with the inverse logit.
+4. Repeat for `n.boot` replicates.
+
+The mean, median, 2.5% and 97.5% quantiles, and standard deviation of the replicate estimates are reported. Beta regression requires values strictly between 0 and 1. Values of exactly 0 or 1, which can occur after truncation, are squeezed into the open interval with the transformation $(y(n-1) + 0.5)/n$ [@smithson2006], applied only when such values are present.
+
+## National estimate
+
+The national estimate pools the values of all regions and fits an intercept-only beta mixed model with region as a random effect,
+
+$$
+\text{logit}(\mu_{ir}) = \beta_0 + u_r, \qquad u_r \sim N(0, \sigma_u^2),
+$$ {#eq-mixed}
+
+with `glmmTMB::glmmTMB(y ~ 1 + (1 | region), family = beta_family())`. The bootstrap is stratified: each replicate draws up to $n_\text{Samps}$ values with replacement within each region, so that every region keeps its own weight regardless of its size. The national estimate is the back-transformed fixed intercept $\text{logit}^{-1}(\beta_0)$, which describes a typical region (random effect equal to zero). It is therefore not the same as the pooled mean of all locations. Replicates for which the model does not fit are dropped, and a warning reports how many.
+
+::: {.callout-note}
+The bootstrap treats the prediction locations as independent observations. Neighbouring locations are spatially autocorrelated, and the occupancy predictions themselves are uncertain. The bootstrap intervals therefore describe resampling variability of the locations only and understate the total uncertainty of the indicator.
+:::
+
+# Running the workflow
+
+The workflow is run by `03_estimating_indicators_using_expert_references.R`. It is selected in the master script with `useExpertData <- TRUE`. The script
+
+1. gets the reference quantiles and the nature regions,
+2. finds the prediction folders of the best models (`prediction` folder, with `prediction_outputs` as a fallback for older runs),
+3. runs `calculate_scaled_ecosystem_richness_with_expert_data()` for the multi-species and single-species groups, and
+4. saves the results and a combined summary across the model groups.
+
+```r
+if (useExpertData) {
+  source(here::here(
+    "scripts",
+    "02_pipeline",
+    "02_modelFit",
+    "03_estimating_indicators_using_expert_references.R"
+  ))
+} else {
+  source(here::here(
+    "scripts",
+    "02_pipeline",
+    "02_modelFit",
+    "03_estimating_indicators.R"
+  ))
+}
+```
+
+The main function can also be called directly:
+
+```r
+scaled_indicator <- calculate_scaled_ecosystem_richness_with_expert_data(
   input_dir = path_to_predictions,
-
-  # Protected areas are used as the reference condition.
-  reference_data = species_reference_vals,
-
-  # Biogeographic regions are used for regional summaries.
+  reference_data = reference_data,
   categorisation_shape = bio_regions,
-
   ecosystem_type = ecosystemType,
-
-  # Column in the prediction outputs containing mean occupancy probability.
-  value_col = indicator_col,
+  value_col = "occupancy_mean",
   region_col = "nature_region",
-
   output_dir = path_to_indicators,
   save_outputs = TRUE,
   overwrite = TRUE,
-
-  # Bootstrap results
   rep_values_for_each_region = TRUE,
-  n.boot = 1000,
+  n.boot = 500,
   boot.seed = 123,
   n.Samps = 20000
 )
-
-
 ```
 
-## Reference value extraction
+## Outputs
 
-Reference conditions provide the benchmark against which ecosystem condition is evaluated [@stoddard2006; @maes2018]. In this workflow, protected areas are assumed to approximate reference ecological conditions for forest ecosystems. Thus, the reference values represent the best available contemporary conditions rather than pristine or historical states.
+The function returns a list and, if `save_outputs = TRUE`, saves each element in the output folder, with GeoParquet for spatial data and csv for tables.
 
-Reference values for forest ecosystems are estimated by generating a regular grid of points within protected-area polygons. Species occupancy predictions are then extracted at those points. The helper function `extract_species_values_at_reference()` supports both `sf` objects and `terra::SpatRaster` prediction layers. For vector predictions, values are assigned using nearest-feature matching, whereas raster predictions are extracted directly from the corresponding grid cells.
+| Element | File | Content |
+|---------|------|---------|
+| `indicator_vals` | `indicator_vals.parquet` | Per location: unscaled mean occupancy across species (`indicator_vals`), `scaled_indicator` (@eq-indicator), region and geometry |
+| `scaled_species` | `scaled_species.parquet` | Per location: scaled value of every species (@eq-scaled), `mean_scaled`, region and geometry |
+| `x100_values` | `x100_values.csv` | Reference value $x_{100}$ (@eq-x100) for every region and species |
+| `species_summary` | `species_summary.csv` | Mean, median, 2.5% and 97.5% quantiles of the scaled values of every species, by region and nationally |
+| `representative_indicator_vals` | `representative_indicator_vals.csv` | Bootstrap mean, median, 2.5% and 97.5% quantiles, and standard deviation of the indicator for each region (beta regression) and `National` (beta mixed model) |
+| `reference_data` | `reference_data.csv` | Reference quantiles of the species used |
+| all of the above | `all_results.rds` | Complete output object |
 
-The resulting object contains predicted occupancy values for each species at all reference points. Species names are stored as separate columns using standardized column names.
+When models are compared (`compareMultipleOutputs <- TRUE`), results are saved in `indicators_outputs/compareMultipleOutputs/<ecosystem>/<model group>/`. Combined tables across groups (`indicator_summary.csv`, `x100_values_all_groups.csv`, `species_summary_all_groups.csv`) are saved in the folder above.
 
-## Expected richness
+## Maps and summary plots
 
-Expected richness is calculated as the sum of predicted occupancy probabilities across species:
+`01_process_one_path_for_results.R` reads the saved results and creates maps of the unscaled mean occupancy and the scaled indicator, a plot of the regional and national estimates with their 95% intervals, and a tile plot of the $x_{100}$ values by species and region.
+
+# Sensitivity to the reference quantile
+
+The choice of quantile for a reference category is a subjective decision. `reference_quantile_sensitivity()` repeats the analysis for several quantiles of one category (default `samme`: 0.5, 0.6, 0.7, 0.8 and 0.9; the other category keeps its default). The species predictions are read once, and the same bootstrap seed is used for every quantile so that differences reflect the quantile and not bootstrap noise.
+
+```r
+sensitivity_results <- reference_quantile_sensitivity(
+  quantile_values = c(0.5, 0.6, 0.7, 0.8, 0.9),
+  category = "samme",
+  input_dir = sens_pred_dir,
+  expert_folder = expertFolder,
+  ecosystem_type = ecosystemType,
+  categorisation_shape = bio_regions,
+  region_col = "nature_region",
+  n.boot = 100,
+  n.Samps = 5000,
+  output_dir = sens_dir
+)
+
+sensitivity_plots <- plot_reference_quantile_sensitivity(
+  sensitivity_results,
+  category = "samme"
+)
+```
+
+The tables (`sensitivity_x100_values.csv`, `sensitivity_representative_indicator_vals.csv`, `sensitivity_species_summary.csv`) and two figures are saved in `indicators_outputs/sensitivity/<ecosystem>/samme_quantile/`. The figures show the indicator estimate and its interval against the quantile for each region, and $x_{100}$ against the quantile for each species of the varied category.
+
+In the mountain ecosystem, raising the `samme` quantile from 0.5 to 0.9 raised the reference values of the affected species and lowered the national indicator from about 0.64 to about 0.54, which is about 0.024 per 0.1 increase in the quantile. The change was similar in all regions, so the ranking of regions was largely unaffected. The change came mostly from species with low occupancy over most of a region, for which the quantile moves from near zero to a moderate value, whereas species whose reference value was already close to 1 were unaffected. These results depend on the species set and predictions of that analysis.
+
+# Interpretation
+
+The indicator expresses how closely predicted occupancy approaches the expert-defined reference condition, averaged across species:
+
+* values close to $1$ indicate that, on average, species' occupancy is at or above their reference values;
+* values close to $0$ indicate low occupancy relative to the reference values.
+
+Because $x_{100}$ is a quantile of the predictions in the region, the indicator is relative to the occupancy that the model predicts within that region and to the quantile chosen by the experts' categories. A species whose reference value is very low (a rare species in that region) reaches the maximum scaled value almost everywhere, and a species whose reference value is close to 1 contributes little variation. The results should therefore be read together with the $x_{100}$ values and the sensitivity analysis.
+
+Because the indicator is derived from occupancy probabilities rather than species inventories, it should be interpreted as a model-based measure of relative ecosystem condition rather than a direct census of biodiversity.
+
+# Alternative: protected areas as reference conditions {#sec-protected}
+
+The earlier approach uses protected areas as proxies for reference conditions and scales **expected richness**, the sum of species occupancy probabilities, rather than species-specific occupancy [@dorazio2006]. It is run by `03_estimating_indicators.R` when `useExpertData <- FALSE`.
+
+Protected areas are loaded with `get_protected_areas()`, and a regular grid of points inside the protected-area polygons is used to extract species predictions (`extract_species_values_at_reference()`). Expected richness at a location is
 
 ```r
 expected_richness = rowSums(species_prediction_values, na.rm = TRUE)
 ```
 
-This approach provides a continuous estimate of richness in which each species contributes proportionally to its predicted occupancy probability rather than through binary presence or absence. Consequently, expected richness can be interpreted as the expected number of species occurring at a location [@dorazio2006].
-
-## Regional reference richness
-
-The reference values were obtained from the survey conducted with experts. The experts were asked to provide probabilities of occurrence of the species given that there is a perfect detection. We estimated the expected richness from these summarised results from the experts as a reference condition. 
-
-Alternatively, expected richness values extracted from protected areas are summarized within each biogeographic region. The maximum expected richness observed among reference points is used as the regional reference value:
-
-```r
- if (useExpertData) {
-        source(here::here(
-          "scripts",
-          "02_pipeline",
-          "02_modelFit",
-          "03_estimating_indicators_using_expert_references.R"
-        ))
-      } else {
-        source(here::here(
-          "scripts",
-          "02_pipeline",
-          "02_modelFit",
-          "03_estimating_indicators.R"
-        ))
-      }
-```
-
-This creates a region-specific benchmark against which all grid cells within the same biogeographic region are evaluated. Using region-specific reference values accounts for natural variation in species richness across environmental gradients and avoids comparing ecosystems with inherently different biodiversity potentials.
-
-## Scaling richness
-
-Scaled richness is calculated as
+The maximum expected richness observed among the reference points in each biogeographic region is the regional reference value $R_{\mathrm{ref},r}$, and scaled richness is calculated as
 
 $$
 \text{Scaled richness} =
@@ -275,18 +305,22 @@ R_{\mathrm{ref},r}-R_{\min}
 },
 $$
 
-where $R_i$ is the expected richness at location $i$, $R_{\min}$ is the minimum expected richness observed across the prediction domain (which we assume to be $0$), and $R_{\mathrm{ref},r}$ is the regional reference richness derived from protected areas in biogeographic region $r$.
+where $R_i$ is the expected richness at location $i$ and $R_{\min}$ is the minimum expected richness across the prediction domain (assumed to be $0$). Scaled richness values are constrained to the interval $[0,1]$. The reference value corresponds to $0.6$ on the scaled indicator, so values greater than $0.6$ indicate conditions better than the reference condition.
 
-Scaled richness values are constrained to the interval $[0,1]$, where:
+```r
+scaled_richness <- calculate_scaled_ecosystem_richness(
+  input_dir = path_to_predictions,
+  reference_shape = protected_regions,
+  categorisation_shape = bio_regions,
+  ecosystem_type = ecosystemType,
+  value_col = indicator_col,
+  point_spacing = aggregation_spacing,
+  forest_only_strict = ecosystemType == "Forest",
+  na.rm = TRUE,
+  output_dir = path_to_indicators,
+  save_outputs = TRUE,
+  overwrite = FALSE
+)
+```
 
-* values close to $1$ indicate richness approaching the best reference conditions observed in the region;
-* values close to $0$ indicate low richness relative to both the regional reference condition and the lower bound of the study area.
-* The reference value is equivalent to $0.6$ on the scaled indicator. This mean that values greater than $0.6$ have conditions better than the reference condition.
-
-Consequently, scaled richness represents a relative ecosystem-condition indicator rather than an estimate of absolute species richness.
-
-## Interpretation
-
-The final scaled richness indicator expresses ecosystem condition as the degree to which predicted species richness resembles the best available reference conditions within each biogeographic region. Values approaching one indicate ecosystems whose expected richness is comparable to protected reference ecosystems or those from expert opinions, whereas values approaching zero indicate relatively species-poor ecosystems.
-
-Because the indicator is derived from occupancy probabilities rather than species inventories, it should be interpreted as a model-based measure of relative ecosystem condition rather than a direct census of biodiversity.
+For forest ecosystems, the reference condition can be restricted to protected forest ecosystems. When `forest_only_strict = TRUE`, only protected areas classified as national parks or nature reserves and designated as forest protection areas are retained.

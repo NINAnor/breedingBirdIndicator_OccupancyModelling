@@ -241,7 +241,18 @@ covariateSelection <- readxl::read_excel(file.path(
   dataFolder,
   "Covariates",
   "covariatesCodingForModelling.xlsx"
-))
+)) |>
+  # Use degree symbols (and fix spelling) in plot labels
+  dplyr::mutate(
+    `Covariate definition` = dplyr::recode_values(
+      `Covariate definition`,
+      "Slope (degrees)" ~ "Slope (\u00B0)",
+      "Aspect (degrees)" ~ "Aspect (\u00B0)",
+      "Latitude (degree North)" ~ "Latitude (\u00B0N)",
+      "Temperature (degree celcius)" ~ "Temperature (\u00B0C)",
+      default = `Covariate definition`
+    )
+  )
 
 if (ecosystemType %in% "Forest") {
   # Detection covariates affect the observation process.

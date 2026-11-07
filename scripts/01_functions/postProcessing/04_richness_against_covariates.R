@@ -7,8 +7,13 @@ plot_occupancy_covariates <- function(
   point_size = 0.8,
   se = TRUE,
   y_label = "Expected richness",
-  covariate_names = NULL
+  covariate_names = NULL,
+  smooth_method = c("bam", "loess"),
+  n_sample = 5000,
+  seed = 2871
 ) {
+  smooth_method <- match.arg(smooth_method)
+
   # ---------------------------------------------------------------------------
   # Check inputs
   # ---------------------------------------------------------------------------
@@ -34,6 +39,35 @@ plot_occupancy_covariates <- function(
       "') is not present in `data`.",
       call. = FALSE
     )
+  }
+
+  # ---------------------------------------------------------------------------
+  # Use a random sample of locations (without replacement) for the points and
+  # the smoother. This keeps the plots fast and the PDFs small.
+  # ---------------------------------------------------------------------------
+
+  if (!is.null(n_sample)) {
+    valid_rows <- which(!is.na(data[[occupancy_col]]))
+
+    if (length(valid_rows) > n_sample) {
+      if (!is.null(seed)) {
+        # Restore the caller's random-number state afterwards
+        old_seed <- if (exists(".Random.seed", envir = globalenv())) {
+          get(".Random.seed", envir = globalenv())
+        }
+        on.exit(
+          if (!is.null(old_seed)) {
+            assign(".Random.seed", old_seed, envir = globalenv())
+          },
+          add = TRUE
+        )
+        set.seed(seed)
+      }
+
+      data <- data[
+        sample(valid_rows, size = n_sample, replace = FALSE),
+      ]
+    }
   }
 
   # ---------------------------------------------------------------------------
@@ -63,6 +97,25 @@ plot_occupancy_covariates <- function(
   )
 
   print(covariate_types)
+
+  # ---------------------------------------------------------------------------
+  # Smoother: fast GAM (mgcv::bam) by default, loess optionally
+  # ---------------------------------------------------------------------------
+
+  smoother_layer <- if (smooth_method == "bam") {
+    ggplot2::geom_smooth(
+      method = mgcv::bam,
+      formula = y ~ s(x, bs = "cs"),
+      method.args = list(method = "fREML", discrete = TRUE),
+      se = se
+    )
+  } else {
+    ggplot2::geom_smooth(
+      method = "loess",
+      formula = y ~ x,
+      se = se
+    )
+  }
 
   # ---------------------------------------------------------------------------
   # Create individual plots
@@ -141,11 +194,7 @@ plot_occupancy_covariates <- function(
             size = point_size
           ) +
 
-          ggplot2::geom_smooth(
-            method = "loess",
-            #formula = y ~ s(x, bs = "cs"),
-            se = se
-          ) +
+          smoother_layer +
 
           ggplot2::labs(
             x = if (is.null(covariate_names)) {

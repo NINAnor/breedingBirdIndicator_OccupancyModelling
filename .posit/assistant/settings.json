@@ -1,0 +1,10 @@
+{
+  "permission": {
+    "external_directory": {
+      "c:\\Users\\kwaku.adjei\\OneDrive - NINA\\112635 - Videreutvikling av indikatorer for hekkefugl - Documents\\ninaProjects\\breedingBirdsOutput\\postProcessing_outputs\\multipleOutputs\\Mountain/*": "allow"
+    },
+    "edit": {
+      "*.R": "allow"
+    }
+  }
+}

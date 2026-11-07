@@ -466,34 +466,44 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
         stop("Could not create directory: ", species_dir, call. = FALSE)
       }
 
-      parquet_file <- file.path(
+      type_suffix <- paste0(prediction_type, "_predictions")
+
+      # File names omit the species name (the folder already carries it) to
+      # keep paths under the Windows 260-character limit.
+      parquet_file <- file.path(species_dir, paste0(type_suffix, ".parquet"))
+      rds_out <- file.path(
         species_dir,
-        paste0(sp_safe, "_", type_suffix, ".parquet")
+        paste0(return, "_", type_suffix, ".rds")
       )
-      if (.Platform$OS.type == "windows" && nchar(parquet_file) >= 250) {
-        stop(
-          "Output path is ",
-          nchar(parquet_file),
-          " characters, above the Windows 260 limit. Use a shorter `output_dir`:\n",
-          parquet_file,
+      tif_file <- file.path(species_dir, paste0(type_suffix, ".tif"))
+
+      # Longest file written for this species, including plots
+      longest_path <- max(
+        nchar(c(parquet_file, rds_out, tif_file)),
+        if (save_plots) {
+          nchar(file.path(species_dir, "plots", "occupancy_probability.png"))
+        } else {
+          0L
+        }
+      )
+      if (.Platform$OS.type == "windows" && longest_path >= 259) {
+        warning(
+          "Output paths reach ",
+          longest_path,
+          " characters, at or above the Windows 260 limit. ",
+          "Use a shorter `output_dir`:\n",
+          species_dir,
           call. = FALSE
         )
       }
 
-      type_suffix <- paste0(prediction_type, "_predictions")
       sfarrow::st_write_parquet(
         sp_result,
-        file.path(species_dir, paste0(type_suffix, ".parquet")),
+        parquet_file,
         compression = "snappy"
       )
 
-      saveRDS(
-        sp_result,
-        file.path(
-          species_dir,
-          paste0(sp_safe, "_", return, "_", type_suffix, ".rds")
-        )
-      )
+      saveRDS(sp_result, rds_out)
 
       if (save_plots) {
         plot_dir <- file.path(species_dir, "plots")
@@ -528,7 +538,7 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
             )
           plot_base <- file.path(
             plot_dir,
-            paste0(sp_safe, "_", ptype, "_probability")
+            paste0(ptype, "_probability")
           )
           ggplot2::ggsave(
             paste0(plot_base, ".png"),
@@ -556,7 +566,7 @@ generate_occupancy_predictions_for_each_species_with_blocks <- function(
           sp_result,
           base_raster,
           prediction_type,
-          file.path(species_dir, paste0(sp_safe, "_", type_suffix, ".tif"))
+          tif_file
         )
       }
       rm(sp_result)
