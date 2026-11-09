@@ -6,7 +6,7 @@ plot_occupancy_covariates <- function(
   point_alpha = 0.2,
   point_size = 0.8,
   se = TRUE,
-  y_label = "Expected richness",
+  y_label = "Occupancy probability",
   covariate_names = NULL,
   smooth_method = c("bam", "loess"),
   n_sample = 5000,
@@ -96,8 +96,6 @@ plot_occupancy_covariates <- function(
     type = covariate_type
   )
 
-  print(covariate_types)
-
   # ---------------------------------------------------------------------------
   # Smoother: fast GAM (mgcv::bam) by default, loess optionally
   # ---------------------------------------------------------------------------
@@ -157,6 +155,11 @@ plot_occupancy_covariates <- function(
             width = 0.15,
             alpha = point_alpha,
             size = point_size
+          ) +
+
+          # Wrap long category names so that they do not overlap
+          ggplot2::scale_x_discrete(
+            labels = scales::label_wrap(10)
           ) +
 
           ggplot2::labs(

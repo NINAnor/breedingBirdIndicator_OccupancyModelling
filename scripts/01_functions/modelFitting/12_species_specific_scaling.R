@@ -49,7 +49,11 @@ read_species_predictions <- function(
       intern = TRUE
     ))
     if (length(result) != 1 || !nzchar(result)) {
-      stop("Could not convert path to Windows short path:\n", path, call. = FALSE)
+      stop(
+        "Could not convert path to Windows short path:\n",
+        path,
+        call. = FALSE
+      )
     }
     result
   }
@@ -61,6 +65,15 @@ read_species_predictions <- function(
     input_dir
   }
   species_dirs <- species_dirs[!grepl("^_", basename(species_dirs))]
+
+  if (length(species_dirs) == 0) {
+    stop(
+      "No species folders were found in `input_dir`. Have the predictions ",
+      "been generated (02_predictions.R)?\n",
+      paste(input_dir, collapse = "\n"),
+      call. = FALSE
+    )
+  }
 
   dir_species <- gsub("_", " ", basename(species_dirs), fixed = TRUE)
 
@@ -75,10 +88,21 @@ read_species_predictions <- function(
 
   species_dirs <- species_dirs[dir_species %in% reference_data$Species]
   if (length(species_dirs) == 0) {
-    stop("No species folders match `reference_data`.", call. = FALSE)
+    stop(
+      "None of the species folders in `input_dir` match `reference_data`. ",
+      "Folders found: ",
+      paste(utils::head(dir_species, 5), collapse = ", "),
+      if (length(dir_species) > 5) ", ..." else "",
+      call. = FALSE
+    )
   }
 
-  pattern <- switch(method, raster = "\\.tif$", sf = "\\.parquet$", rds = "\\.rds$")
+  pattern <- switch(
+    method,
+    raster = "\\.tif$",
+    sf = "\\.parquet$",
+    rds = "\\.rds$"
+  )
 
   read_prediction <- function(sp_dir) {
     files <- list.files(sp_dir, full.names = TRUE, recursive = FALSE)
@@ -163,7 +187,10 @@ species_specific_scaling <- function(
   method <- match.arg(method)
 
   if (save_outputs && is.null(output_dir)) {
-    stop("`output_dir` must be supplied when `save_outputs = TRUE`.", call. = FALSE)
+    stop(
+      "`output_dir` must be supplied when `save_outputs = TRUE`.",
+      call. = FALSE
+    )
   }
 
   # ---- Read predictions (unless supplied) -------------------------------------
@@ -215,7 +242,11 @@ species_specific_scaling <- function(
       )
     }
 
-    sfarrow::st_write_parquet(output$scaled, scaled_file, compression = "snappy")
+    sfarrow::st_write_parquet(
+      output$scaled,
+      scaled_file,
+      compression = "snappy"
+    )
     utils::write.csv(output$reference_values, ref_file, row.names = FALSE)
     saveRDS(output, file.path(output_dir, "all_results.rds"))
   }

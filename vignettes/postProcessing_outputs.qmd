@@ -342,7 +342,7 @@ The covariate names shown on the plots come from the `Covariate definition` colu
 
 # Occupancy and detection relationships with covariates
 
-`plot_occupancy_covariates()` plots predicted occupancy or detection probability against each covariate, with a smoother, for every species. The predictions of each species are extracted at the survey locations from a 2-km raster with bilinear interpolation. The multi-species PDF (`multi_species_richCovRel_all_species.pdf`) has one page per species.
+`plot_occupancy_covariates()` plots predicted occupancy or detection probability against each covariate, with a smoother, for every species. The predictions of each species are extracted at the survey locations from a 2-km raster with bilinear interpolation. The multi-species PDF (`multi_species_occ_cov_effects.pdf`) has one page per species.
 
 ```r
 plot_occupancy_covariates(
@@ -365,7 +365,7 @@ Repeated surveys at the same location share the same covariate values and predic
 
 `05_detection_effects.R` is sourced at the end of the post-processing script and produces two sets of figures for each model group:
 
-1. **Detection probability against the detection covariates** (`<group>_detection_covariate_relationships.pdf`), one page per species. Detection covariates that are stored per year (for example `mean_temperature_2020`) are averaged over the years.
+1. **Detection probability against the detection covariates** (`<group>_det_cov_effects.pdf`), one page per species. Detection covariates that are stored per year (for example `mean_temperature_2020`) are averaged over the years.
 2. **Detection probability against occupancy probability** (`<group>_detection_vs_occupancy.png/pdf`), with one panel per species, made with `plot_detection_vs_occupancy()`. Up to 2,000 distinct locations per species are shown with a smoother.
 
 ```r
@@ -378,8 +378,8 @@ Occupancy and detection are estimated in the same model and can share covariates
 
 When the indicator outputs exist (see the indicator vignette), the post-processing script reads them and creates, for each model group:
 
-* **Validation:** the scaled indicator (the mean across species of occupancy scaled against the regional reference values) plotted against the occupancy covariates (`<group>_richCovRel.png/pdf`).
-* **Maps:** the unscaled mean occupancy across the species with an expert reference (`<group>_mean_occupancy.png`) and the scaled indicator (`<group>_scaled_indicator.png`), in the `indicator_plots` folder.
+* **Validation:** the scaled indicator (the mean across species of occupancy scaled against the regional reference values) plotted against the occupancy covariates (`<model>_indicator_vs_covariates.png/pdf`).
+* **Maps:** the unscaled mean occupancy across the species with an expert reference (`<model>_mean_occupancy.png`) and the scaled indicator (`<model>_scaled_indicator.png`), in the `ind_plots` folder.
 * **Regional estimates:** the bootstrap mean and 95% interval of the indicator for each nature region and nationally (`indicator_regional_estimates.png`).
 * **Reference values:** a tile plot of the reference value (`x100`) of each species and region (`x100_reference_values.png`).
 

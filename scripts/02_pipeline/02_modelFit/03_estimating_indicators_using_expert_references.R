@@ -36,7 +36,7 @@ run_sensitivity <- if (exists("runSensitivity")) {
 # Reference values from experts
 ################################################################################
 
-# Defaults: samme = 0.9, høyere = 0.99. Override with e.g. samme = 0.6.
+# Defaults: samme = 0.75, høyere = 0.99. Override with e.g. samme = 0.6.
 reference_data <- get_reference_quantiles(
   expert_folder = expertFolder,
   ecosystem_type = ecosystemType,
@@ -111,6 +111,21 @@ resolve_prediction_dir <- function(model_path) {
       if (length(existing)) existing[1] else candidates[1]
     },
     character(1),
+    USE.NAMES = FALSE
+  )
+}
+
+# TRUE if a prediction folder contains predictions: species sub-folders (model
+# folder of a multi-species model) or prediction files (species folder)
+dir_has_predictions <- function(dirs) {
+  vapply(
+    dirs,
+    function(d) {
+      dir.exists(d) &&
+        (length(list.dirs(d, recursive = FALSE)) > 0 ||
+          length(list.files(d, pattern = "\\.(rds|parquet|tif)$")) > 0)
+    },
+    logical(1),
     USE.NAMES = FALSE
   )
 }
@@ -264,7 +279,19 @@ if (compareMultipleOutputs) {
           call. = FALSE
         )
       }
-      pp_for_preds <- pp_for_preds[dir.exists(pp_for_preds)]
+      empty_preds <- pp_for_preds[
+        dir.exists(pp_for_preds) & !dir_has_predictions(pp_for_preds)
+      ]
+      if (length(empty_preds) > 0) {
+        warning(
+          "Prediction folders without predictions for ",
+          group,
+          " (run 02_predictions.R first):\n",
+          paste(utils::head(empty_preds, 5), collapse = "\n"),
+          call. = FALSE
+        )
+      }
+      pp_for_preds <- pp_for_preds[dir_has_predictions(pp_for_preds)]
 
       if (length(pp_for_preds) == 0) {
         warning("No predictions to process for ", group, call. = FALSE)
@@ -317,6 +344,15 @@ if (compareMultipleOutputs) {
   # Standard analysis: the model of the current configuration
   #---------------------------------------------------------------------------
 
+  if (!all(dir_has_predictions(path_to_predictions))) {
+    stop(
+      "No predictions found in:\n",
+      paste(path_to_predictions, collapse = "\n"),
+      "\nRun the predictions (02_predictions.R, runPredictions <- TRUE) first.",
+      call. = FALSE
+    )
+  }
+
   scaled_richness <- calculate_indicator(
     prediction_dir = path_to_predictions,
     output_dir = path_to_indicators,
@@ -332,7 +368,7 @@ if (compareMultipleOutputs) {
 ################################################################################
 
 if (run_sensitivity) {
-  if (is.null(sens_pred_dir) || !all(dir.exists(sens_pred_dir))) {
+  if (is.null(sens_pred_dir) || !all(dir_has_predictions(sens_pred_dir))) {
     warning(
       "Prediction folder for the sensitivity analysis not found; skipping.",
       call. = FALSE

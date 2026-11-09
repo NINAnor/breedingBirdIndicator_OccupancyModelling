@@ -251,7 +251,7 @@ for (i in unique(best_models$single_species)) {
     path_to_postProcessing,
     paste0(
       modelType,
-      "_richCovRel_all_species.pdf"
+      "_occ_cov_effects.pdf"
     )
   )
 
@@ -329,7 +329,7 @@ for (i in unique(best_models$single_species)) {
         covariate_names = covariateSelection
       ) +
         patchwork::plot_annotation(
-          title = x
+          title = gsub("_", " ", x, fixed = TRUE)
         )
 
       print(ret)
@@ -427,7 +427,7 @@ for (i in unique(best_models$single_species)) {
           y_label = "Occupancy probability"
         ) +
           patchwork::plot_annotation(
-            title = x
+            title = gsub("_", " ", x, fixed = TRUE)
           )
 
         print(ret)

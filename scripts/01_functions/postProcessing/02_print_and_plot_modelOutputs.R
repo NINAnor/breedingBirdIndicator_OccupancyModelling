@@ -190,8 +190,15 @@ plot.model_outputs <- function(
   components = NULL,
   best_models = NULL,
   covariate_names = NULL,
-  n.cols = 2
+  n.cols = 2,
+  level_labels = NULL
 ) {
+  # `level_labels`: optional data frame with the columns `covariate` (the
+  # model covariate name, e.g. "forestType"), `level` (the coded value of the
+  # category) and `label` (the name to show instead of the code, e.g.
+  # "5-10m trees"). It is used in the facet labels of categorical covariates
+  # ("Forest type = 5-10m trees" instead of "Forest type = 28"). Levels
+  # without a label keep their code.
   type <- match.arg(type)
 
   meta <- object$meta
@@ -286,6 +293,56 @@ plot.model_outputs <- function(
   df <- standardise(df)
 
   # ============================================================
+  # 3b. REPLACE CODED CATEGORY LEVELS BY THEIR NAMES
+  #
+  # Done before the covariates are renamed, while `covariate` still
+  # holds the model covariate name.
+  # ============================================================
+
+  if (!is.null(level_labels)) {
+    missing_cols <- setdiff(
+      c("covariate", "level", "label"),
+      names(level_labels)
+    )
+
+    if (length(missing_cols) > 0) {
+      stop(
+        "`level_labels` needs the columns: covariate, level, label.",
+        call. = FALSE
+      )
+    }
+
+    # The community-level summaries give the coefficient name only
+    # (e.g. "forestType28"): split it into the covariate and its level
+    for (cv in unique(level_labels$covariate)) {
+      pattern <- paste0("^", cv, "(.+)$")
+      hit <- is.na(df$level) &
+        !is.na(df$covariate) &
+        grepl(pattern, df$covariate)
+
+      df$level[hit] <- sub(pattern, "\\1", df$covariate[hit])
+      df$covariate[hit] <- cv
+    }
+
+    label_key <- paste(
+      level_labels$covariate,
+      level_labels$level,
+      sep = "\r"
+    )
+
+    matched <- match(
+      paste(df$covariate, df$level, sep = "\r"),
+      label_key
+    )
+
+    df$level <- as.character(df$level)
+    has_label <- !is.na(matched) & !is.na(df$level)
+    df$level[has_label] <- as.character(
+      level_labels$label[matched[has_label]]
+    )
+  }
+
+  # ============================================================
   # 4. RENAME COVARIATES
   # ============================================================
 
@@ -302,13 +359,16 @@ plot.model_outputs <- function(
       ) %>%
 
       dplyr::mutate(
-        covariate = `Covariate definition`
+        # Covariates without a definition (e.g. the intercept) keep their name
+        covariate = dplyr::coalesce(`Covariate definition`, covariate)
       ) %>%
 
       dplyr::select(
         -`Covariate definition`
       )
   }
+
+  df$covariate[df$covariate %in% "(Intercept)"] <- "Intercept"
 
   # ============================================================
   # 5. PATH LABEL
@@ -421,11 +481,21 @@ plot.model_outputs <- function(
     # Variables used for plotting
     # ----------------------------------------------------------
 
+    # Summary plots show one row per parameter (e.g. "Forest type = >20m trees")
     y_var <- if (is_summary) {
-      "covariate"
+      "parameter"
     } else {
       "Species"
     }
+
+    # Readable names for the panels that are named after the component
+    component_labels <- c(
+      occ_effects = "Occupancy effects",
+      det_effects = "Detection effects",
+      bayes_P = "Bayesian p-value",
+      beta_summary = "Community-level occupancy effects",
+      alpha_summary = "Community-level detection effects"
+    )
 
     facet_var <- if (is_summary) {
       "component"
@@ -437,16 +507,15 @@ plot.model_outputs <- function(
     # Species ordering
     # ----------------------------------------------------------
 
-    if (!is_summary) {
-      species_order <- unique(
-        df$Species
-      )
+    # (summary plots: parameters in order of appearance, first at the top)
+    y_order <- unique(
+      df[[y_var]]
+    )
 
-      df[[y_var]] <- factor(
-        df[[y_var]],
-        levels = rev(species_order)
-      )
-    }
+    df[[y_var]] <- factor(
+      df[[y_var]],
+      levels = rev(y_order)
+    )
 
     # ----------------------------------------------------------
     # Get facet values
@@ -517,7 +586,12 @@ plot.model_outputs <- function(
               # ------------------------------------------------
 
               ggplot2::geom_vline(
-                xintercept = 0,
+                # 0.5 is the reference for Bayesian p-values
+                xintercept = if (identical(current_facet, "bayes_P")) {
+                  0.5
+                } else {
+                  0
+                },
                 linetype = "dashed",
                 linewidth = 0.35,
                 color = "grey50"
@@ -572,7 +646,11 @@ plot.model_outputs <- function(
             p <- p +
 
               ggplot2::labs(
-                title = current_facet,
+                title = if (current_facet %in% names(component_labels)) {
+                  component_labels[[current_facet]]
+                } else {
+                  current_facet
+                },
                 x = NULL,
                 y = NULL,
                 color = if (use_colors) {

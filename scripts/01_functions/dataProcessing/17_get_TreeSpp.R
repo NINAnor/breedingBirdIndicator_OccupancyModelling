@@ -4,8 +4,12 @@
 #' projects it to the specified target CRS. Because dominant tree species
 #' is a categorical variable, nearest-neighbour resampling is used.
 #'
+#' The raster values 1, 2 and 3 are spruce, pine and deciduous trees. The
+#' value 0 does not indicate a tree type and is set to `NA`.
+#'
 #' If the processed raster already exists and `overwrite = FALSE`, the
-#' cached raster is read from disk instead of being recomputed.
+#' cached raster is read from disk instead of being recomputed (use
+#' `overwrite = TRUE` to apply the recoding of 0 to a raster created earlier).
 #'
 #' This function supports FAIR principles:
 #' \itemize{
@@ -40,13 +44,12 @@
 #'
 #' @export
 get_TreeSpp <- function(
-    input_file,
-    output_file,
-    target_crs = "EPSG:25833",
-    metadata_file = NULL,
-    overwrite = FALSE
+  input_file,
+  output_file,
+  target_crs = "EPSG:25833",
+  metadata_file = NULL,
+  overwrite = FALSE
 ) {
-
   required_pkgs <- c("terra", "yaml")
 
   missing_pkgs <- required_pkgs[
@@ -87,7 +90,6 @@ get_TreeSpp <- function(
   # --------------------------------------------------------
 
   if (file.exists(output_file) && !overwrite) {
-
     message(
       "Reading cached SR16 dominant tree species raster: ",
       output_file
@@ -113,12 +115,10 @@ get_TreeSpp <- function(
   # --------------------------------------------------------
 
   if (is.numeric(target_crs)) {
-
     target_crs <- paste0(
       "EPSG:",
       target_crs
     )
-
   }
 
   target_crs <- as.character(target_crs)
@@ -165,6 +165,17 @@ get_TreeSpp <- function(
   )
 
   # --------------------------------------------------------
+  # Class 0 does not indicate a tree type: set it to NA
+  #
+  # Values 1, 2 and 3 are spruce, pine and deciduous trees.
+  # --------------------------------------------------------
+
+  TreeSppRaster <- terra::classify(
+    TreeSppRaster,
+    cbind(0, NA)
+  )
+
+  # --------------------------------------------------------
   # Name output layer
   # --------------------------------------------------------
 
@@ -190,7 +201,6 @@ get_TreeSpp <- function(
   # --------------------------------------------------------
 
   if (is.null(metadata_file)) {
-
     metadata_file <- file.path(
       dirname(output_file),
       paste0(
@@ -219,7 +229,6 @@ get_TreeSpp <- function(
   # --------------------------------------------------------
 
   metadata <- list(
-
     title = "SR16 dominant tree species",
 
     description = paste(
@@ -233,7 +242,6 @@ get_TreeSpp <- function(
     ),
 
     source = list(
-
       dataset = paste(
         "Norwegian Forest Resource Map",
         "(Skogressurskart) SR16"
@@ -249,7 +257,6 @@ get_TreeSpp <- function(
     ),
 
     output = list(
-
       file = output_file,
 
       file_format = "GeoTIFF",
@@ -260,7 +267,6 @@ get_TreeSpp <- function(
     ),
 
     processing_method = list(
-
       "function" = "terra::project()",
 
       resampling = "nearest neighbour",
@@ -274,7 +280,6 @@ get_TreeSpp <- function(
     ),
 
     raster_properties = list(
-
       input_crs = input_crs,
 
       output_crs = terra::crs(
@@ -308,7 +313,6 @@ get_TreeSpp <- function(
     ),
 
     FAIR = list(
-
       Findable = paste(
         "Descriptive output and metadata filenames are used."
       ),
@@ -330,7 +334,6 @@ get_TreeSpp <- function(
     ),
 
     citation = list(
-
       NIBIO = paste(
         "NIBIO (2026). The Norwegian Forest Resource Map",
         "(Skogressurskart) SR16 and SR16-beta Raster Dataset",
@@ -352,14 +355,12 @@ get_TreeSpp <- function(
   # --------------------------------------------------------
 
   tryCatch(
-
     yaml::write_yaml(
       metadata,
       metadata_file
     ),
 
     error = function(e) {
-
       warning(
         "Tree species raster was saved, but metadata could not",
         " be written: ",

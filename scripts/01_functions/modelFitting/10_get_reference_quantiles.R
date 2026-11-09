@@ -57,13 +57,19 @@ reference_quantile_lookup <- function(...) {
 #' Reads the species list and the expert reference categories for an
 #' ecosystem, and converts each category to its fixed reference quantile.
 #'
-#' @param expert_folder Character. Folder containing `referenceValues/`.
-#' @param ecosystem_type Character. Ecosystem, e.g. `"Mountain"`.
+#' @param expert_folder Character. Folder containing the species list
+#'   workbook and the `referenceValues/` folder.
+#' @param ecosystem_type Character. Ecosystem, `"Forest"` or `"Mountain"`.
 #' @param ref_quantiles Data frame with `reference_category` and
 #'   `reference_quantile`. Defaults to the fixed `reference_quantile_lookup()`.
-#' @param species_file Character. Species list workbook inside
-#'   `referenceValues/`.
-#' @param species_sheet Character. Sheet in `species_file`.
+#' @param species_file Character. Expert species list workbook
+#'   (`Artsutvalg_030626.xlsx`) inside `expert_folder`. It needs a Norwegian
+#'   name column (`Norsk ...`), a scientific name column (`Vitenskapelig ...`)
+#'   and the ecosystem columns used by [retrieve_expertSpeciesList()]
+#'   (`Gammelskog ...` for forest and `Fjell_n\u00F8kkel ...` for mountain,
+#'   with the value `"Ja"` for the species of the ecosystem).
+#' @param species_sheet Character or integer. Sheet in `species_file`
+#'   (`NULL`, the default, is the first sheet).
 #' @param expert_file Character. Expert reference workbook inside
 #'   `referenceValues/`. Defaults to `<ecosystem>_experts_refs.xlsx`.
 #' @param expert_sheet Character. Sheet in `expert_file`.
@@ -79,8 +85,8 @@ get_reference_quantiles <- function(
   expert_folder,
   ecosystem_type,
   ref_quantiles = reference_quantile_lookup(),
-  species_file = "SPECIES_SELECTION.xlsx",
-  species_sheet = "ListSpecies",
+  species_file = "Artsutvalg_030626.xlsx",
+  species_sheet = "Vurderinger",
   expert_file = paste0(tolower(ecosystem_type), "_experts_refs.xlsx"),
   expert_sheet = "Sheet 1"
 ) {
@@ -94,7 +100,7 @@ get_reference_quantiles <- function(
     !anyDuplicated(ref_quantiles$reference_category)
   )
 
-  species_path <- file.path(ref_dir, species_file)
+  species_path <- file.path(expert_folder, species_file)
   expert_path <- file.path(ref_dir, expert_file)
   for (p in c(species_path, expert_path)) {
     if (!file.exists(p)) {
@@ -109,24 +115,63 @@ get_reference_quantiles <- function(
     reference_quantile = ref_quantiles$reference_quantile
   )
 
-  species_selection <- readxl::read_excel(
-    species_path,
-    sheet = species_sheet
-  ) |>
+  # ---- Species of the ecosystem from the expert species list -----------------
+  species_all <- readxl::read_excel(species_path, sheet = species_sheet)
+
+  find_col <- function(pattern, what) {
+    col <- grep(pattern, names(species_all), value = TRUE, ignore.case = TRUE)
+    if (length(col) == 0) {
+      stop(
+        "No ",
+        what,
+        " column (matching '",
+        pattern,
+        "') in ",
+        species_file,
+        ". Columns: ",
+        paste(names(species_all), collapse = ", "),
+        call. = FALSE
+      )
+    }
+    col[1]
+  }
+
+  ecosystem_col <- find_col(
+    switch(
+      ecosystem_type,
+      Forest = "Gammelskog",
+      Mountain = "Fjell_n\u00F8kkel",
+      stop("`ecosystem_type` must be 'Forest' or 'Mountain'.", call. = FALSE)
+    ),
+    paste(ecosystem_type, "ecosystem")
+  )
+
+  species_selection <- species_all |>
     dplyr::select(
-      norwegian_name = `Norsk navn`,
-      Species,
-      ecosystem_type = `Ecosystem type`
+      norwegian_name = dplyr::all_of(find_col(
+        "^Populærnavn",
+        "Norwegian name"
+      )),
+      Species = dplyr::all_of(find_col("Vitenskapelig", "scientific name")),
+      in_ecosystem = dplyr::all_of(ecosystem_col)
     ) |>
-    dplyr::filter(ecosystem_type %in% .env$ecosystem_type) |>
+    dplyr::mutate(
+      norwegian_name = clean(norwegian_name),
+      Species = trimws(Species)
+    ) |>
+    dplyr::filter(in_ecosystem %in% "Ja") |>
     dplyr::distinct(norwegian_name, Species)
 
+  # ---- Expert reference categories ---------------------------------------
   expert_refs <- readxl::read_excel(expert_path, sheet = expert_sheet) |>
     dplyr::select(
       norwegian_name = `norsk navn`,
       reference_category = Referanse
     ) |>
-    dplyr::mutate(category_key = clean(reference_category)) |>
+    dplyr::mutate(
+      norwegian_name = clean(norwegian_name),
+      category_key = clean(reference_category)
+    ) |>
     # Species without an expert category ("NA" text or empty cell)
     dplyr::filter(!is.na(category_key), !category_key %in% c("na", ""))
 
@@ -147,6 +192,8 @@ get_reference_quantiles <- function(
     warning(
       "Expert species not found in the species list for ",
       ecosystem_type,
+      " in ",
+      species_file,
       " (dropped): ",
       paste(missing_species, collapse = ", "),
       call. = FALSE

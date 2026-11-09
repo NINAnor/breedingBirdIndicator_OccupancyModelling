@@ -6,7 +6,7 @@
 #   2. Extracts environmental covariates at bird survey locations
 #   3. Loads the selected/best models
 #   4. Creates model diagnostic and parameter-effect plots
-#   5. Validates expected richness against occupancy covariates
+#   5. Validates the scaled indicator against occupancy covariates
 #   6. Reads and plots scaled indicator outputs
 #
 # =============================================================================
@@ -140,9 +140,23 @@ model_outputs_file <- file.path(
   "model_outputs.RData"
 )
 
+# A cached file without any model (saved when no model files were found) is
+# not used
+if (file.exists(model_outputs_file)) {
+  cached_outputs <- new.env()
+  load(model_outputs_file, envir = cached_outputs)
+
+  if (nrow(cached_outputs$outputs$meta) == 0) {
+    message("The saved model outputs are empty; extracting them again.")
+    unlink(model_outputs_file)
+  }
+
+  rm(cached_outputs)
+}
+
 if (!file.exists(model_outputs_file)) {
   if (!compareMultipleOutputs) {
-    outputs <- extract_model_outputs(
+    outputs <- extract_model_outputs_with_archive(
       path_to_results,
       modelChecks
     )
@@ -156,7 +170,7 @@ if (!file.exists(model_outputs_file)) {
       include_spatial_model = c(TRUE, FALSE)
     )
 
-    outputs <- extract_model_outputs(
+    outputs <- extract_model_outputs_with_archive(
       paths_df$path_to_results,
       modelChecks
     )
@@ -228,8 +242,10 @@ if ("dominantTree" %in% all_covariates) {
     breeding_bird_data_for_modelling %>%
 
     dplyr::mutate(
+      # 1 = spruce, 2 = pine, 3 = deciduous; 0 (no tree type) and missing
+      # values are given code 4
       dominantTree = dplyr::if_else(
-        is.na(dominantTree),
+        is.na(dominantTree) | dominantTree == 0,
         4,
         dominantTree
       ),
@@ -270,11 +286,9 @@ if ("forestType" %in% all_covariates) {
 # Identify best models
 #---------------------------------------------------------------------------
 
+# Saved by 03_select_best_model_params.R in `path_to_postProcessing`
 best_model_file <- file.path(
-  output_root,
-  "postProcessing_outputs",
-  "multipleOutputs",
-  ecosystemType,
+  path_to_postProcessing,
   "best_models.csv"
 )
 
@@ -294,6 +308,80 @@ best_models <- readr::read_csv(
 
 
 # =============================================================================
+# 06b. NAMES OF THE CATEGORICAL COVARIATE LEVELS
+# =============================================================================
+#
+# The categorical covariates are coded as numbers in the models. This table
+# links each code to its name so that facet labels show the name:
+#   covariate = model covariate name, level = code, label = name.
+# Levels without a label keep their code in the plots.
+# -----------------------------------------------------------------------------
+
+landcover_legend <- readxl::read_excel(
+  file.path(dataFolder, "Covariates", "Landcover_F_M", "legend.xlsx"),
+  sheet = "NO_binnedClasses"
+)
+
+level_labels <- dplyr::bind_rows(
+  # Forest type: binned GLAD classes used in the model
+  landcover_legend |>
+    dplyr::transmute(
+      covariate = "forestType",
+      level = as.character(`For model - Binned cats`),
+      label = `general description`
+    ),
+
+  # GLAD land cover: original GLAD classes
+  landcover_legend |>
+    dplyr::transmute(
+      covariate = "glad_landcover",
+      level = as.character(`lc_GLAD.tif value`),
+      label = `Subclass (our description)`
+    ),
+
+  # Dominant tree species (SR16 classes): 1-3 are spruce, pine and deciduous
+  # trees. Code 4 is given to locations without a tree type (value 0 or
+  # missing) in the data preparation.
+  data.frame(
+    covariate = "dominantTree",
+    level = c("1", "2", "3", "4"),
+    label = c("Spruce", "Pine", "Deciduous", "No tree type")
+  )
+) |>
+  dplyr::filter(!is.na(level), !is.na(label)) |>
+  dplyr::distinct(covariate, level, .keep_all = TRUE) |>
+  # Keep labels unique within a covariate (several GLAD codes share a name)
+  dplyr::group_by(covariate, label) |>
+  dplyr::mutate(
+    label = if (dplyr::n() > 1) {
+      paste0(label, " (", level, ")")
+    } else {
+      label
+    }
+  ) |>
+  dplyr::ungroup()
+
+# Use the names of the categories instead of the codes in the covariate
+# plots too (the factor levels of the survey-location covariates)
+for (cov in unique(level_labels$covariate)) {
+  if (!cov %in% names(breeding_bird_data_for_modelling)) {
+    next
+  }
+
+  cov_labels <- level_labels[level_labels$covariate == cov, ]
+  codes <- as.character(breeding_bird_data_for_modelling[[cov]])
+
+  named <- cov_labels$label[match(codes, cov_labels$level)]
+  named[is.na(named) & !is.na(codes)] <- codes[is.na(named) & !is.na(codes)]
+
+  breeding_bird_data_for_modelling[[cov]] <- factor(
+    named,
+    levels = unique(named[order(suppressWarnings(as.numeric(codes)))])
+  )
+}
+
+
+# =============================================================================
 # 07. MODEL EFFECT AND DIAGNOSTIC PLOTS
 # =============================================================================
 
@@ -307,6 +395,7 @@ p_species_occ <- plot(
   components = c("occ_effects"),
   best_models = best_models,
   covariate_names = covariateSelection,
+  level_labels = level_labels,
   n.cols = 3
 ) +
   ggplot2::labs(
@@ -331,7 +420,9 @@ p_species_det <- plot(
   outputs,
   type = "error",
   components = c("det_effects"),
-  best_models = best_models
+  best_models = best_models,
+  covariate_names = covariateSelection,
+  level_labels = level_labels
 ) +
   ggplot2::labs(
     title = "Detection effects",
@@ -375,7 +466,9 @@ p_comm_occ <- plot(
   outputs,
   type = "error",
   components = c("beta_summary"),
-  best_models = best_models
+  best_models = best_models,
+  covariate_names = covariateSelection,
+  level_labels = level_labels
 ) +
   ggplot2::labs(
     title = "Community-level parameter summaries",
@@ -400,7 +493,9 @@ p_comm_det <- plot(
   outputs,
   type = "error",
   components = c("alpha_summary"),
-  best_models = best_models
+  best_models = best_models,
+  covariate_names = covariateSelection,
+  level_labels = level_labels
 ) +
   ggplot2::labs(
     title = "Community-level parameter summaries",
@@ -421,14 +516,30 @@ p_comm_det <- plot(
 # 08. SAVE MODEL FIGURES
 # =============================================================================
 
+# The occupancy effects have one panel per covariate (3 per row) and one row
+# per species in each panel: make the figure tall enough to read the names
+n_species_plot <- length(unique(outputs$occ_effects$Species))
+n_panel_rows <- ceiling(
+  length(unique(stats::na.omit(
+    ifelse(
+      is.na(outputs$occ_effects$level),
+      outputs$occ_effects$covariate,
+      paste(outputs$occ_effects$covariate, outputs$occ_effects$level)
+    )
+  ))) /
+    3
+)
+
 save_plot(
   p_species_occ,
-  "occupancy_effects"
+  "occupancy_effects",
+  height = 2 + n_panel_rows * max(3, 0.16 * n_species_plot)
 )
 
 save_plot(
   p_species_det,
-  "detection_effects"
+  "detection_effects",
+  height = max(10, 3 + 0.3 * n_species_plot)
 )
 
 if (modelChecks) {
@@ -464,13 +575,13 @@ print(p_species_det)
 
 
 # =============================================================================
-# 10. EXPECTED RICHNESS VALIDATION
+# 10. INDICATOR VALIDATION
 # =============================================================================
 #
-# Compare expected richness from the indicator outputs with occupancy
+# Compare the scaled indicator from the indicator outputs with occupancy
 # covariates at the bird survey/prediction locations.
 #
-# When compareMultipleOutputs = TRUE, expected-richness results are searched
+# When compareMultipleOutputs = TRUE, indicator results are searched
 # within the compareMultipleOutputs directory.
 # -----------------------------------------------------------------------------
 
@@ -499,7 +610,7 @@ if (compareMultipleOutputs) {
 
 
 # -----------------------------------------------------------------------------
-# Keep only expected-richness result files
+# Keep only indicator result files
 # -----------------------------------------------------------------------------
 
 #exp_rds_files <- rds_files[
@@ -519,11 +630,9 @@ indicator_label <- function(file) {
   if (compareMultipleOutputs) {
     basename(dirname(file))
   } else {
-    paste(
-      basename(dirname(dirname(file))),
-      basename(dirname(file)),
-      sep = "_"
-    )
+    # A short label keeps the file names within the Windows path-length
+    # limit; the folder already identifies the model
+    "model"
   }
 }
 
@@ -540,7 +649,7 @@ exp_rds_files <- rds_files[
 ]
 
 # -----------------------------------------------------------------------------
-# Load expected-richness results
+# Load indicator results
 # -----------------------------------------------------------------------------
 
 exp_richness_rds_files <- lapply(
@@ -654,7 +763,7 @@ predCoords <- dplyr::bind_cols(
 
 
 # -----------------------------------------------------------------------------
-# Validate expected richness against occupancy covariates
+# Validate the scaled indicator against occupancy covariates
 # -----------------------------------------------------------------------------
 
 validationPlots <- lapply(
@@ -668,6 +777,7 @@ validationPlots <- lapply(
       point_alpha = 0.2,
       point_size = 0.8,
       covariate_names = covariateSelection,
+      y_label = "Scaled indicator",
       se = TRUE
     )
 
@@ -675,7 +785,7 @@ validationPlots <- lapply(
     ggsave(
       filename = file.path(
         path_to_postProcessing,
-        paste0(x, "_richCovRel.png")
+        paste0(x, "_indicator_vs_covariates.png")
       ),
       plot = ret,
       units = "in",
@@ -687,7 +797,7 @@ validationPlots <- lapply(
     ggsave(
       filename = file.path(
         path_to_postProcessing,
-        paste0(x, "_richCovRel.pdf")
+        paste0(x, "_indicator_vs_covariates.pdf")
       ),
       plot = ret,
       units = "in",
@@ -705,7 +815,7 @@ validationPlots <- lapply(
 # =============================================================================
 #
 # Read the final indicator GeoParquet outputs and create maps of:
-#   - Expected richness
+#   - Mean occupancy
 #   - Scaled indicator
 # -----------------------------------------------------------------------------
 
@@ -803,7 +913,7 @@ names(expected_richness_sf) <- vapply(
 
 plot_dir <- file.path(
   path_to_postProcessing,
-  "indicator_plots"
+  "ind_plots"
 )
 
 dir.create(
@@ -856,8 +966,8 @@ for (i in seq_along(expected_richness_sf)) {
 
     labs(
       title = model_name,
-      x = "Easting",
-      y = "Northing"
+      x = "Longitude (°E)",
+      y = "Latitude (°N)"
     ) +
 
     theme_minimal(
@@ -918,8 +1028,8 @@ for (i in seq_along(expected_richness_sf)) {
 
     labs(
       title = model_name,
-      x = "Easting",
-      y = "Northing"
+      x = "Longitude (°E)",
+      y = "Latitude (°N)"
     ) +
 
     theme_minimal(
@@ -1032,7 +1142,11 @@ if (!is.null(rep_vals)) {
     ) +
 
     theme(
-      legend.position = "bottom"
+      legend.position = if (dplyr::n_distinct(rep_vals$model) > 1) {
+        "bottom"
+      } else {
+        "none"
+      }
     )
 
   ggsave(
@@ -1063,7 +1177,8 @@ if (!is.null(x100_vals)) {
       name = "x100"
     ) +
 
-    facet_wrap(~model) +
+    # One panel per model (omitted when there is only one model)
+    (if (dplyr::n_distinct(x100_vals$model) > 1) facet_wrap(~model) else NULL) +
 
     labs(
       x = NULL,

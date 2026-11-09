@@ -121,11 +121,12 @@ if (ecosystemType %in% "Mountain") {
 }
 
 if (use_best_model_file) {
+  # 03_select_best_model_params.R saves best_models.csv in
+  # `path_to_postProcessing`: the multipleOutputs folder when models are
+  # compared (compareMultipleOutputs = TRUE), otherwise the folder of the
+  # current model configuration.
   best_model_file <- file.path(
-    output_root,
-    "postProcessing_outputs",
-    "multipleOutputs",
-    ecosystemType,
+    path_to_postProcessing,
     "best_models.csv"
   )
 
@@ -193,9 +194,22 @@ if (use_best_model_file) {
     "model_outputs.RData"
   )
 
+  # A cached file without any model (saved when no model files were found) is
+  # not used
+  if (file.exists(model_outputs_file)) {
+    cached_outputs <- new.env()
+    load(model_outputs_file, envir = cached_outputs)
+
+    if (nrow(cached_outputs$outputs$meta) == 0) {
+      unlink(model_outputs_file)
+    }
+
+    rm(cached_outputs)
+  }
+
   if (!file.exists(model_outputs_file)) {
     if (!compareMultipleOutputs) {
-      outputs <- extract_model_outputs(
+      outputs <- extract_model_outputs_with_archive(
         path_to_results,
         modelChecks
       )
@@ -209,7 +223,7 @@ if (use_best_model_file) {
         include_spatial_model = c(TRUE, FALSE)
       )
 
-      outputs <- extract_model_outputs(
+      outputs <- extract_model_outputs_with_archive(
         paths_df$path_to_results,
         modelChecks
       )
@@ -234,8 +248,38 @@ if (use_best_model_file) {
 
   norm <- function(x) normalizePath(x, winslash = "/", mustWork = FALSE)
 
+  # Only the files of the current ecosystem are considered. The modelFit
+  # folder also holds the models of the other ecosystems, which must not be
+  # archived when the best models of this ecosystem are selected.
+  all_files_in_results_folder <- all_files_in_results_folder[
+    grepl(
+      paste0("/", ecosystemType, "/"),
+      norm(all_files_in_results_folder),
+      fixed = TRUE
+    )
+  ]
+
   all_files_norm <- norm(all_files_in_results_folder)
   keep_dirs <- paste0(sub("/+$", "", norm(path_to_results)), "/")
+
+  # Safety check: the folders of the best models must contain model files,
+  # otherwise every model file would be treated as "not the best model"
+  keep_has_models <- vapply(
+    path_to_results,
+    function(d) {
+      length(list.files(d, pattern = "\\.rds$", recursive = TRUE)) > 0
+    },
+    logical(1)
+  )
+
+  if (!any(keep_has_models)) {
+    stop(
+      "None of the best-model folders contain model files; nothing was ",
+      "archived:\n",
+      paste(path_to_results, collapse = "\n"),
+      call. = FALSE
+    )
+  }
 
   in_best <- vapply(
     all_files_norm,
@@ -380,7 +424,7 @@ for (i in seq_along(path_to_results)) {
 
       # Return predictions as raster layers
       return = "raster", #c("sf", "raster"), # options: sf or raster
-      block_size = 10000,
+      block_size = 1000,
 
       # Posterior credible intervals
       probs = c(0.025, 0.975),

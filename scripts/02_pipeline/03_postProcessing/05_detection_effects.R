@@ -182,7 +182,8 @@ for (i in unique(best_models$single_species)) {
 
   pdf_file <- file.path(
     path_to_postProcessing,
-    paste0(modelType, "_detection_covariate_relationships.pdf")
+    # Short names keep the path under the Windows limit of 260 characters
+    paste0(modelType, "_det_cov_effects.pdf")
   )
 
   pdf(file = pdf_file, width = 9, height = 5)
@@ -220,7 +221,7 @@ for (i in unique(best_models$single_species)) {
       plot = p_det_occ,
       width = 12,
       height = max(4, 3 * n_rows),
-      dpi = 300
+      dpi = 200
     )
   }
 

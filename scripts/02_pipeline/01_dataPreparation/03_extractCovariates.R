@@ -155,8 +155,10 @@ if ("dominantTree" %in% all_covariates) {
   breeding_bird_data_for_modelling <-
     breeding_bird_data_for_modelling %>%
     dplyr::mutate(
+      # 1 = spruce, 2 = pine, 3 = deciduous; 0 (no tree type) and missing
+      # values are given code 4
       dominantTree = dplyr::if_else(
-        is.na(dominantTree),
+        is.na(dominantTree) | dominantTree == 0,
         4,
         dominantTree
       ),
@@ -379,8 +381,10 @@ if ("dominantTree" %in% all_covariates) {
   predictionPoints_for_modelling <-
     predictionPoints_for_modelling %>%
     dplyr::mutate(
+      # 1 = spruce, 2 = pine, 3 = deciduous; 0 (no tree type) and missing
+      # values are given code 4
       dominantTree = dplyr::if_else(
-        is.na(dominantTree),
+        is.na(dominantTree) | dominantTree == 0,
         4,
         dominantTree
       ),

@@ -18,24 +18,32 @@
 # Function: combine_best_occupancy_plots
 # =============================================================================
 
-combine_best_occupancy_plots <- function(
-  outputs,
-  path_to_postProcessing,
-  output_dir_name = "combined_species_plots",
-  final_filename = "all_species_occupancy_probability.pdf"
-) {
-  # ===========================================================================
-  # 1. Select the best models using WAIC
-  # ===========================================================================
-  #
-  # Lower WAIC indicates a better-fitting model.
-  #
-  # Multiple-species models:
-  #   Select the model with the lowest WAIC.
-  #
-  # Single-species models:
-  #   Select the model with the lowest WAIC separately for each species.
-  # ---------------------------------------------------------------------------
+#' Select the best models by WAIC
+#'
+#' Lower WAIC indicates a better-fitting model. For the multiple-species
+#' models the model with the lowest WAIC is selected; for the single-species
+#' models the model with the lowest WAIC is selected separately for each
+#' species. The selection is saved as `best_models.csv` when
+#' `path_to_postProcessing` is given. This step does not need any predictions.
+#'
+#' @param outputs Model outputs with a `waic_vals` table.
+#' @param path_to_postProcessing Folder for `best_models.csv` (or `NULL`).
+#'
+#' @return A data frame with the selected models.
+#' @export
+select_best_models <- function(outputs, path_to_postProcessing = NULL) {
+  if (
+    !is.data.frame(outputs$waic_vals) ||
+      !all(c("WAIC", "single_species") %in% names(outputs$waic_vals))
+  ) {
+    # (also the case when no model files were found: the table is empty)
+    stop(
+      "`outputs$waic_vals` has no WAIC values. Extract the model outputs with ",
+      "`modelChecks = TRUE` (the saved model_outputs.RData may come from a ",
+      "run without model checks).",
+      call. = FALSE
+    )
+  }
 
   best_models <- bind_rows(
     # Best multiple-species model
@@ -57,18 +65,46 @@ combine_best_occupancy_plots <- function(
       ungroup()
   )
 
+  if (!is.null(path_to_postProcessing)) {
+    write.csv(
+      best_models,
+      file.path(
+        path_to_postProcessing,
+        "best_models.csv"
+      ),
+      row.names = FALSE
+    )
+  }
+
+  best_models
+}
+
+
+combine_best_occupancy_plots <- function(
+  outputs,
+  path_to_postProcessing,
+  output_dir_name = "combined_species_plots",
+  final_filename = "all_species_occupancy_probability.pdf",
+  strict = TRUE
+) {
   # ===========================================================================
-  # Save selected models
+  # 1. Select the best models using WAIC and save them
   # ===========================================================================
 
-  write.csv(
-    best_models,
-    file.path(
-      path_to_postProcessing,
-      "best_models.csv"
-    ),
-    row.names = FALSE
+  best_models <- select_best_models(
+    outputs,
+    path_to_postProcessing = path_to_postProcessing
   )
+
+  # Result returned when the plots cannot be combined (strict = FALSE)
+  best_models_only <- function(reason) {
+    warning(
+      reason,
+      " The best models were saved, but the occupancy plots were not combined.",
+      call. = FALSE
+    )
+    invisible(list(best_models = best_models))
+  }
 
   # ===========================================================================
   # 2. Find occupancy probability PNG files
@@ -87,15 +123,28 @@ combine_best_occupancy_plots <- function(
   #       <model path>/<Species>/plots/
   # ---------------------------------------------------------------------------
 
+  # Predictions are written to "prediction" (see 02_predictions.R);
+  # "prediction_outputs" is used as a fallback for older runs.
+  resolve_prediction_path <- function(model_path) {
+    candidates <- c(
+      sub("modelFit", "prediction", model_path, fixed = TRUE),
+      sub("modelFit", "prediction_outputs", model_path, fixed = TRUE)
+    )
+
+    existing <- candidates[dir.exists(candidates)]
+
+    if (length(existing) > 0) existing[1] else candidates[1]
+  }
+
+  # The plots are named occupancy_probability.png and are stored in the
+  # plots folder of each species (older runs: <Species>_occupancy_probability.png)
+  plot_pattern <- "(^|_)occupancy_probability\\.png$"
+
   png_files <- unlist(
     lapply(
       seq_len(nrow(best_models)),
       function(i) {
-        base_path <- gsub(
-          "modelFit",
-          "prediction_outputs",
-          best_models$path[i]
-        )
+        base_path <- resolve_prediction_path(best_models$path[i])
 
         # ---------------------------------------------------------------------
         # Multiple-species model
@@ -104,7 +153,7 @@ combine_best_occupancy_plots <- function(
         if (is.na(best_models$Species[i])) {
           list.files(
             base_path,
-            pattern = "_occupancy_probability\\.png$",
+            pattern = plot_pattern,
             full.names = TRUE,
             recursive = TRUE,
             ignore.case = TRUE
@@ -122,7 +171,7 @@ combine_best_occupancy_plots <- function(
 
           list.files(
             plot_path,
-            pattern = "_occupancy_probability\\.png$",
+            pattern = plot_pattern,
             full.names = TRUE,
             recursive = TRUE,
             ignore.case = TRUE
@@ -141,8 +190,12 @@ combine_best_occupancy_plots <- function(
   # ===========================================================================
 
   if (length(png_files) == 0) {
-    stop(
-      "No occupancy probability PNG files were found."
+    if (strict) {
+      stop("No occupancy probability PNG files were found.", call. = FALSE)
+    }
+
+    return(
+      best_models_only("No occupancy probability PNG files were found.")
     )
   }
 
@@ -150,12 +203,9 @@ combine_best_occupancy_plots <- function(
   # 3. Create data frame describing the PNG files
   # ===========================================================================
 
+  # The species is the folder above `plots`
   png_df <- data.frame(
-    Species = sub(
-      "_occupancy_probability\\.png$",
-      "",
-      basename(png_files)
-    ),
+    Species = basename(dirname(dirname(png_files))),
 
     png = png_files,
 
@@ -208,18 +258,29 @@ combine_best_occupancy_plots <- function(
       values_fill = 0
     )
 
+  # A model type without any plot has no column after pivoting
+  for (col in c("multiple", "single")) {
+    if (!col %in% names(check_counts)) {
+      check_counts[[col]] <- 0L
+    }
+  }
+
   if (
     any(check_counts$multiple != 1) ||
       any(check_counts$single != 1)
   ) {
     print(plot_counts)
 
-    stop(
-      paste(
-        "Each species must have exactly one multiple-species",
-        "and one single-species occupancy plot."
-      )
+    msg <- paste(
+      "Each species must have exactly one multiple-species",
+      "and one single-species occupancy plot."
     )
+
+    if (strict) {
+      stop(msg, call. = FALSE)
+    }
+
+    return(best_models_only(msg))
   }
 
   # ===========================================================================
